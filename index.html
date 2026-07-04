@@ -43,7 +43,10 @@
         var shell = new ActiveXObject("WScript.Shell");
         var fso = new ActiveXObject("Scripting.FileSystemObject");
         var dnsTimerId = null;
+        var deletedRefreshTimerId = null;
         var TXT_GROUP_PATH = "C:\\NetworkMonitor\\blocked_ips_tracker.txt";
+        var DELETED_TRACKER_PATH = "C:\\NetworkMonitor\\deleted_items_tracker.txt";
+        var DELETED_TRACKER_FALLBACK_PATHS = ["C:\\Users\\Administrator\\Documents\\deleted_items_tracker.txt", "C:\\Temp\\deleted_items_tracker.txt"];
         var CSV_LOG_PATH = "C:\\NetworkMonitor\\security_events.csv";
         var previousArpEntries = [];
         var CUSTOM_BLOCK_GROUP = "SecGuard_Blocked_IPs";
@@ -62,6 +65,18 @@
                     tracker.WriteLine("== SECGUARD LOCAL FIREWALL BLOCKED IPS GROUP ==");
                     tracker.Close();
                 }
+                if (!fso.FileExists(DELETED_TRACKER_PATH)) {
+                    var dtracker = fso.CreateTextFile(DELETED_TRACKER_PATH, true);
+                    dtracker.WriteLine("== SECGUARD LOCAL DELETED ITEMS TRACKER ==");
+                    dtracker.Close();
+                }
+                for (var ft = 0; ft < DELETED_TRACKER_FALLBACK_PATHS.length; ft++) {
+                    if (!fso.FileExists(DELETED_TRACKER_FALLBACK_PATHS[ft])) {
+                        var ftracker = fso.CreateTextFile(DELETED_TRACKER_FALLBACK_PATHS[ft], true);
+                        ftracker.WriteLine("== SECGUARD LOCAL DELETED ITEMS TRACKER ==");
+                        ftracker.Close();
+                    }
+                }
                 if (!fso.FileExists(CSV_LOG_PATH)) {
                     var csv = fso.CreateTextFile(CSV_LOG_PATH, true);
                     csv.WriteLine("Timestamp,Event_Type,Target_Asset,Status_Message");
@@ -79,7 +94,17 @@
             runArpMonitor();
             runRoutePrint();
             runFirewallCheck();
+            if (deletedRefreshTimerId === null) {
+                deletedRefreshTimerId = setInterval(runFirewallCheck, 3000);
+            }
         }
+
+        window.onunload = function() {
+            try {
+                if (deletedRefreshTimerId !== null) clearInterval(deletedRefreshTimerId);
+                if (dnsTimerId !== null) clearInterval(dnsTimerId);
+            } catch (e) {}
+        };
 
         function writeToCsvLog(eventType, targetDetails, statusText) {
             try {
@@ -184,11 +209,27 @@
             var dropDown = document.getElementById('arp-selector');
             var selectedIp = dropDown.options[dropDown.selectedIndex].value;
             if (selectedIp === "") { alert("Please select a target ARP IP address to delete."); return; }
-
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
             if (confirm("Permanently drop neighbor connection metadata for: " + selectedIp + "?")) {
-                shell.Run('cmd.exe /c netsh interface ipv4 delete neighbors ip=' + selectedIp, 0, true);
-                shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors ip=' + selectedIp, 0, true);
-                runArpMonitor();
+                try {
+                    if (logBox) { logBox.setAttribute("data-busy", "true"); logBox.innerText = "[" + timestamp + "] Deleting ARP entry: " + selectedIp; }
+                    shell.Run('cmd.exe /c netsh interface ipv4 delete neighbors ip=' + selectedIp, 0, true);
+                    shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors ip=' + selectedIp, 0, true);
+                    writeToCsvLog("ARP_DELETE", selectedIp, "Deleted ARP neighbor entry via UI");
+                } catch (err) {
+                    if (logBox) logBox.innerText += "\n[ARP Delete Error] " + err.message;
+                } finally {
+                    try {
+                        appendDeletedEntry("ARP_ENTRY_DELETED", selectedIp);
+                        writeToCsvLog("DELETED_TRACKER_APPEND", selectedIp, "Appended delete to deleted_items_tracker.txt");
+                        if (logBox) logBox.innerText += "\n[INFO] Appended delete to tracker.";
+                    } catch (appErr) {
+                        if (logBox) logBox.innerText += "\n[ERROR] appendDeletedEntry failed: " + appErr.message;
+                    }
+                    // ensure UI shows latest deleted entries
+                    setTimeout(function() { runArpMonitor(); runFirewallCheck(); if (logBox) logBox.setAttribute("data-busy", "false"); }, 400);
+                }
             }
         }
 
@@ -244,40 +285,125 @@
             if (selectedIp === "") { alert("Please select a valid network destination route."); return; }
 
             if (confirm("Are you sure you want to run route delete targeting: " + selectedIp + "?")) {
-                shell.Run('cmd.exe /c route delete ' + selectedIp, 0, true);
+                try {
+                    shell.Run('cmd.exe /c route delete ' + selectedIp, 0, true);
+                    appendDeletedEntry("ROUTE_DELETED", selectedIp);
+                } catch (err) {
+                    if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[Route Delete Error] " + err.message;
+                }
                 runRoutePrint();
             }
         }
 
-        function runFirewallCheck() {
-            try {
-                if (fso.FileExists(TXT_GROUP_PATH)) {
-                    var file = fso.OpenTextFile(TXT_GROUP_PATH, 1);
+        function readDeletedTrackerLines() {
+            var allLines = [];
+            var pathsToCheck = [DELETED_TRACKER_PATH].concat(DELETED_TRACKER_FALLBACK_PATHS);
+            for (var p = 0; p < pathsToCheck.length; p++) {
+                try {
+                    if (!fso.FileExists(pathsToCheck[p])) continue;
+                    var file = fso.OpenTextFile(pathsToCheck[p], 1);
                     var contents = file.ReadAll();
                     file.Close();
-
                     var lines = contents.split(/\r?\n/);
-                    var displayLines = [];
                     for (var i = 0; i < lines.length; i++) {
                         var line = lines[i].trim();
-                        if (line !== "" && line.indexOf("== SECGUARD LOCAL FIREWALL BLOCKED IPS GROUP ==") === -1) {
-                            if (line.indexOf("BLOCKED_IP:") !== -1 || line.indexOf("BLOCKED_IP") !== -1) {
-                                displayLines.push(line);
-                            }
+                        if (line !== "" && line.indexOf("== SECGUARD LOCAL DELETED ITEMS TRACKER ==") === -1) {
+                            allLines.push(line);
                         }
                     }
+                } catch (e) {}
+            }
+            return allLines;
+        }
 
-                    document.getElementById('firewall-box').innerText = displayLines.length > 0 ? displayLines.join("\n") : "No blocked IPs recorded yet. Use Block IP & Assign to Group to add one.";
-                } else {
-                    document.getElementById('firewall-box').innerText = "No active local GUI blocked group registry text discovered.";
-                }
+        function runFirewallCheck() {
+            try {
+                var lines = readDeletedTrackerLines();
+                document.getElementById('firewall-box').innerText = lines.length > 0 ? lines.join("\n") : "No deleted entries recorded yet.";
             } catch (e) {
                 document.getElementById('firewall-box').innerText = "Local Storage Fetch Error: " + e.message;
             }
         }
 
+        function appendDeletedEntry(type, value) {
+            var now = new Date();
+            var simpleDate = now.toLocaleDateString() + " " + now.toLocaleTimeString();
+            var line = "[" + simpleDate + "] " + type + ": " + value;
+            var wroteSuccessfully = false;
+            // Try multiple write strategies and report errors to log-box
+            try {
+                // Ensure folder exists
+                if (!fso.FolderExists("C:\\NetworkMonitor")) {
+                    fso.CreateFolder("C:\\NetworkMonitor");
+                }
+
+                try {
+                    var writtenPath = null;
+                    var paths = [DELETED_TRACKER_PATH].concat(DELETED_TRACKER_FALLBACK_PATHS);
+                    for (var p = 0; p < paths.length; p++) {
+                        try {
+                            var parentDir = paths[p].substring(0, paths[p].lastIndexOf('\\'));
+                            if (parentDir !== "" && !fso.FolderExists(parentDir)) {
+                                fso.CreateFolder(parentDir);
+                            }
+                            if (!fso.FileExists(paths[p])) {
+                                var createFile = fso.CreateTextFile(paths[p], true);
+                                createFile.WriteLine("== SECGUARD LOCAL DELETED ITEMS TRACKER ==");
+                                createFile.Close();
+                            }
+                            var file = fso.OpenTextFile(paths[p], 8, true);
+                            file.WriteLine(line);
+                            file.Close();
+                            writtenPath = paths[p];
+                            break;
+                        } catch (pErr) {
+                            continue;
+                        }
+                    }
+                    if (writtenPath !== null) {
+                        wroteSuccessfully = true;
+                    } else {
+                        throw new Error('Unable to write to any deleted tracker path');
+                    }
+                } catch (werr) {
+                    throw new Error('Write failed: ' + werr.message);
+                }
+
+                // Update UI immediately
+                try {
+                    var box = document.getElementById('firewall-box');
+                    if (box) {
+                        var existing = box.innerText || "";
+                        if (existing.indexOf("No deleted entries recorded yet") !== -1 || existing.indexOf("Reading active file tracking parameters") !== -1 || existing.indexOf("No deleted entries tracker discovered") !== -1) {
+                            box.innerText = line;
+                        } else {
+                            box.innerText = line + "\n" + existing;
+                        }
+                    }
+                } catch (uiErr) {
+                    if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[UI Update Error] " + uiErr.message;
+                }
+
+                // Debug: read back the file and show contents in log-box to confirm write
+                try {
+                    var trackerContents = readDeletedTrackerLines().join("\n");
+                    if (document.getElementById('log-box')) {
+                        document.getElementById('log-box').innerText += "\n[DEBUG] Deleted tracker contents:\n" + trackerContents;
+                    }
+                } catch (readErr) {
+                    if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[DEBUG READ ERROR] " + readErr.message;
+                }
+
+                runFirewallCheck();
+            } catch (err) {
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText += "\n[Deleted Tracker Error] " + err.message;
+                }
+            }
+        }
+
         function deleteFirewallRuleByName() {
-            var ruleName = document.getElementById('firewall-rule-name').value.trim();
+            var ruleName = document.getElementById('firewall-rule-search').value.trim();
             if (ruleName === "") { alert("Please enter a firewall rule name first."); return; }
 
             var logBox = document.getElementById('log-box');
@@ -288,10 +414,75 @@
                 shell.Run('cmd.exe /c netsh advfirewall firewall delete rule name="' + ruleName + '"', 0, true);
                 logBox.innerText += "Delete command executed for rule: " + ruleName;
                 writeToCsvLog("FIREWALL_RULE_DELETE", ruleName, "Executed netsh advfirewall firewall delete rule name=...");
+                appendDeletedEntry("FIREWALL_RULE_DELETED", ruleName);
             } catch (err) {
                 logBox.innerText += "\n[ERROR] Rule deletion failed: " + err.message;
             }
             setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 4000);
+        }
+
+        function searchFirewallRule() {
+            var query = document.getElementById('firewall-rule-search').value.trim().toLowerCase();
+            var results = [];
+            try {
+                // Search deleted tracker(s)
+                var deletedLines = readDeletedTrackerLines();
+                for (var i = 0; i < deletedLines.length; i++) {
+                    var line = deletedLines[i].trim();
+                    if (line === "" || line.indexOf("== SECGUARD LOCAL DELETED ITEMS TRACKER ==") !== -1) continue;
+                    if (query === "" || line.toLowerCase().indexOf(query) !== -1) results.push(line);
+                }
+
+                // Search blocked group file as well
+                if (fso.FileExists(TXT_GROUP_PATH)) {
+                    var bf = fso.OpenTextFile(TXT_GROUP_PATH, 1);
+                    var bcont = bf.ReadAll();
+                    bf.Close();
+                    var blines = bcont.split(/\r?\n/);
+                    for (var j = 0; j < blines.length; j++) {
+                        var bline = blines[j].trim();
+                        if (bline === "" || bline.indexOf("== SECGUARD LOCAL FIREWALL BLOCKED IPS GROUP ==") !== -1) continue;
+                        if (query === "" || bline.toLowerCase().indexOf(query) !== -1) results.push(bline);
+                    }
+                }
+
+                var box = document.getElementById('firewall-box');
+                if (box) {
+                    if (results.length === 0) {
+                        box.innerText = query === "" ? "No deleted entries recorded yet." : "No matches for '" + query + "'";
+                    } else {
+                        box.innerText = results.join("\n");
+                    }
+                }
+            } catch (err) {
+                if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[Search Error] " + err.message;
+            }
+        }
+
+        function onArpSelectChange() {
+            try {
+                var dropDown = document.getElementById('arp-selector');
+                var selectedIp = dropDown.options[dropDown.selectedIndex].value || "";
+                var searchBox = document.getElementById('firewall-rule-search');
+                if (searchBox) searchBox.value = selectedIp;
+                // Auto-run search when a selection is made
+                searchFirewallRule();
+            } catch (e) {
+                if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[ARP Select Error] " + e.message;
+            }
+        }
+
+        function searchSelectedArp() {
+            try {
+                var dropDown = document.getElementById('arp-selector');
+                var selectedIp = dropDown.options[dropDown.selectedIndex].value || "";
+                if (selectedIp === "") { alert('Please select an ARP entry first.'); return; }
+                var searchBox = document.getElementById('firewall-rule-search');
+                if (searchBox) searchBox.value = selectedIp;
+                searchFirewallRule();
+            } catch (e) {
+                if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[SearchSelectedArp Error] " + e.message;
+            }
         }
 
         function blockSelectedIp() {
@@ -410,10 +601,40 @@
                 shell.Run('cmd.exe /c route print', 0, true);
                 shell.Run('cmd.exe /c route delete ff00::/8', 0, true);
                 shell.Run('cmd.exe /c route delete ::1/128', 0, true);
+                shell.Run('cmd.exe /c route delete ::1/128', 0, true);
                 shell.Run('cmd.exe /c route delete fe80::/64', 0, true);
+                shell.Run('cmd.exe /c route delete fe80::d4d5:37b:6503:5972/128', 0, true);
+                shell.Run('cmd.exe /c route delete ff00::/8', 0, true);
+                shell.Run('cmd.exe /c route delete ff00::/8', 0, true);
+                shell.Run('cmd.exe /c route delete fe80::39df:7e94:f560:38ca/128', 0, true);
+
+                shell.Run('cmd.exe /c route delete 96.246.55.0', 0, true);
+                shell.Run('cmd.exe /c route delete 96.246.55.166', 0, true);
+                shell.Run('cmd.exe /c route delete 96.246.55.255', 0, true);
+                shell.Run('cmd.exe /c route delete 127.0.0.1', 0, true);
+
+                shell.Run('cmd.exe /c route delete 72.69.144.221', 0, true);
+                shell.Run('cmd.exe /c route delete 72.69.144.255', 0, true);
+                shell.Run('cmd.exe /c route delete 192.168.0.0', 0, true);
                 shell.Run('cmd.exe /c route delete 127.0.0.0', 0, true);
+                shell.Run('cmd.exe /c route delete 127.0.0.1', 0, true);
+                shell.Run('cmd.exe /c route delete 192.168.0.100', 0, true);
+                shell.Run('cmd.exe /c route delete 192.168.0.255', 0, true);
+
+                shell.Run('cmd.exe /c route delete 100.37.82.255', 0, true);
+                shell.Run('cmd.exe /c route delete 100.37.82.67', 0, true);
+                shell.Run('cmd.exe /c route delete 100.37.82.0', 0, true);
+                shell.Run('cmd.exe /c route delete 100.37.82.67', 0, true);
+                shell.Run('cmd.exe /c route delete 100.37.82.255', 0, true);
+                shell.Run('cmd.exe /c route delete 100.37.196.0', 0, true);
+                shell.Run('cmd.exe /c route delete 100.37.196.83', 0, true);
+                shell.Run('cmd.exe /c route delete 100.37.196.255', 0, true);
+                shell.Run('cmd.exe /c route delete 127.255.255.255', 0, true);
+                shell.Run('cmd.exe /c route delete 224.0.0.0', 0, true);
                 shell.Run('cmd.exe /c route delete 224.0.0.0', 0, true);
                 shell.Run('cmd.exe /c route delete 255.255.255.255', 0, true);
+                shell.Run('cmd.exe /c route delete 255.255.255.255', 0, true);
+
                 shell.Run('cmd.exe /c route print', 0, true);
                 logBox.innerText += "Route cleanup sequence completed.";
                 writeToCsvLog("ROUTE_CLEANUP", "Custom cleanup", "Executed route delete cleanup sequence.");
@@ -444,6 +665,47 @@
             }
             setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 6000);
         }
+
+        function networkReset() {
+            if (!confirm('Run full Network Reset sequence? This will execute system network and firewall resets.')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting Network Reset...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\network_reset.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Network reset script not found: ' + batchPath;
+                    return;
+                }
+                // Launch visible command window to run the batch so user can see progress
+                shell.Run('cmd.exe /c start "Network Reset" "' + batchPath + '"', 1, false);
+                writeToCsvLog('NETWORK_RESET', batchPath, 'Started network reset via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Network Reset started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function resetFirewall() {
+            if (!confirm('Reset Windows Firewall settings?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Resetting firewall...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\reset_firewall.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Firewall reset script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Reset Firewall" "' + batchPath + '"', 1, false);
+                writeToCsvLog('FIREWALL_RESET', batchPath, 'Started firewall reset via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Firewall reset started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
     </script>
 </head>
 <body onload="initializeSystem()">
@@ -458,19 +720,24 @@
         <pre id="table-box" class="pre table-box">Loading ARP records...</pre>
 
         <h3 style="color: #38bdf8; margin-top: 10px;">Select a Target ARP Record to Manage / Isolate:</h3>
-        <select id="arp-selector" style="width: 100%; background: #020617; color: #38bdf8; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px; margin-bottom: 6px;">
+        <select id="arp-selector" onchange="onArpSelectChange()" style="width: 100%; background: #020617; color: #38bdf8; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px; margin-bottom: 6px;">
             <option value="">-- Choose an active ARP connection entry --</option>
         </select>
         <div style="display: flex; gap: 8px; margin-bottom: 5px;">
             <button class="btn" style="background: #eab308; color: #020617; flex: 1; height: 30px; margin:0;" onclick="blockSelectedIp()">⚠️ Block IP & Assign to Group</button>
             <button class="btn" style="background: #9f1239; width: 150px; height: 30px; margin:0;" onclick="removeSelectedArp()">Delete ARP</button>
+            <button class="btn" style="background: #2563eb; width: 140px; height: 30px; margin:0;" onclick="searchSelectedArp()">Search Selected ARP</button>
         </div>
 
-        <h3 style="color: #eab308;">Local GUI Stored Block List Group Tracker:</h3>
+        <h3 style="color: #eab308;">Deleted Items Tracker (Local GUI):</h3>
         <pre id="firewall-box" class="pre route-box" style="color: #fde047; height: 90px;">Reading active file tracking parameters...</pre>
         <div style="margin-top: 6px; margin-bottom: 8px;">
-            <input id="firewall-rule-name" type="text" placeholder="Enter firewall rule name" style="width: 100%; background: #020617; color: #fde047; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; box-sizing: border-box;" />
-            <button class="btn btn-scan" style="background: #ca8a04; margin-top: 6px;" onclick="deleteFirewallRuleByName()">Delete Firewall Rule</button>
+            <input id="firewall-rule-search" type="search" placeholder="Search firewall rules or enter exact name to delete" style="width: 100%; background: #020617; color: #fde047; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; box-sizing: border-box;" />
+            <div style="display:flex; gap:8px; margin-top:6px;">
+                <button class="btn btn-scan" style="background: #0ea5e9; flex:1;" onclick="searchFirewallRule()">Search Rule</button>
+                <button class="btn" style="background:#ca8a04; color:#020617; width:160px;" onclick="deleteFirewallRuleByName()">Delete Rule</button>
+                <button class="btn" style="background:#475569; color:#fde047; width:140px;" onclick="appendDeletedEntry('TEST', 'UI Test Entry')">Debug Write</button>
+            </div>
         </div>
 
         <h3>Active Windows IP Routing Table (route print):</h3>
@@ -491,10 +758,12 @@
                 <button class="btn btn-scan" style="background: #7c3aed;" onclick="runRoutePrint()">Show Route Table</button>
                 <button class="btn btn-scan" style="background: #0f766e;" onclick="releaseDhcpLease()">Release DHCP</button>
                 <button class="btn btn-scan" style="background: #2563eb;" onclick="renewDhcpLease()">Renew DHCP</button>
-                <button class="btn btn-scan" style="background: #7c2d12;" onclick="cleanRoutes()">Clean Routes</button>
+                <button class="btn btn-scan" style="background: #7c2d12;" onclick="cleanRoutes()">Clear Route</button>
                 <button class="btn btn-scan" style="background: #312e81;" onclick="showNetworkConnections()">Show Network Connections</button>
                 <button class="btn" style="background: #dc2626;" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
                 <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
+                <button class="btn" style="background:#7f1d1d;" onclick="networkReset()">Network Reset</button>
+                <button class="btn" style="background:#0f766e;" onclick="resetFirewall()">Reset Firewall</button>
             </div>
             <div class="col">
                 <h3>DNS Overdrive Engine:</h3>
