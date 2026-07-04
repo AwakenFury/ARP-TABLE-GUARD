@@ -1,4 +1,4 @@
-![ARP-TABLE-GUARD](assets/Cyber_Glove.png)
+![ARP-TABLE-GUARD](asset/ChatGPT Image Jul 4, 2026, 12_13_10 AM.png)
 
 ![Status](https://img.shields.io/badge/status-experimental-red)
 ![ESP32](https://img.shields.io/badge/platform-ESP32-blue)
