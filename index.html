@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Network Security Dashboard</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <hta:application 
+        id="arpDashboard"
+        applicationname="ARP Dashboard"
+        border="thick"
+        maximizebutton="no"
+        minimizebutton="yes"
+        scroll="yes"
+        singleinstance="yes"
+    >
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 12px; margin: 0; }
+        .card { max-width: 640px; margin: 0 auto; background: #1e293b; padding: 15px; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
+        h1 { margin-top: 0; margin-bottom: 5px; font-size: 18px; border-bottom: 2px solid #334155; padding-bottom: 4px; }
+        h3 { margin: 6px 0 3px 0; font-size: 12px; color: #94a3b8; }
+        .status { font-size: 0.95rem; font-weight: bold; padding: 5px; border-radius: 6px; text-align: center; margin: 8px 0; }
+        .safe { background: #065f46; color: #34d399; }
+        .alert { background: #991b1b; color: #fca5a5; }
+        pre { background: #020617; padding: 8px; border-radius: 8px; font-family: monospace; font-size: 11px; color: #38bdf8; overflow-y: auto; overflow-x: hidden; white-space: pre-wrap; margin: 0; border: 1px solid #1e293b; }
+        .log-box { height: 55px; color: #e2e8f0; }
+        .table-box { height: 110px; color: #cbd5e1; border: 1px solid #334155; }
+        .route-box { height: 110px; color: #a7f3d0; border: 1px solid #334155; }
+        .highlight { color: #34d399; font-weight: bold; }
+        .controls-grid { display: flex; flex-direction: row; gap: 10px; margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; }
+        .col { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+        .btn { border: none; padding: 6px 10px; font-size: 11px; font-weight: bold; border-radius: 6px; cursor: pointer; color: white; width: 100%; text-align: center; margin-bottom: 2px; }
+        .btn-start { background: #2563eb; }
+        .btn-stop { background: #475569; }
+        .btn-ram { background: #059669; }
+        .btn-scan { background: #d97706; }
+        .dns-status { font-size: 11px; font-weight: bold; text-align: center; color: #64748b; margin-top: 1px; }
+        .dns-active { color: #38bdf8; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+    <script language="JavaScript">
+        window.resizeTo(640, 1080);
+
+        var shell = new ActiveXObject("WScript.Shell");
+        var fso = new ActiveXObject("Scripting.FileSystemObject");
+        var dnsTimerId = null;
+        var TXT_GROUP_PATH = "C:\\NetworkMonitor\\blocked_ips_tracker.txt";
+        var CSV_LOG_PATH = "C:\\NetworkMonitor\\security_events.csv";
+        var previousArpEntries = [];
+        var CUSTOM_BLOCK_GROUP = "SecGuard_Blocked_IPs";
+
+        var target1 = "72.69.1.1 cc-e1-7f-90-4a-cb dynamic";
+        var target2 = "224.0.0.22 01-00-5e-00-00-16 static";
+        var target3 = "239.255.255.250 01-00-5e-7f-ff-fa static";
+
+        function ensureTrackerFiles() {
+            try {
+                if (!fso.FolderExists("C:\\NetworkMonitor")) {
+                    fso.CreateFolder("C:\\NetworkMonitor");
+                }
+                if (!fso.FileExists(TXT_GROUP_PATH)) {
+                    var tracker = fso.CreateTextFile(TXT_GROUP_PATH, true);
+                    tracker.WriteLine("== SECGUARD LOCAL FIREWALL BLOCKED IPS GROUP ==");
+                    tracker.Close();
+                }
+                if (!fso.FileExists(CSV_LOG_PATH)) {
+                    var csv = fso.CreateTextFile(CSV_LOG_PATH, true);
+                    csv.WriteLine("Timestamp,Event_Type,Target_Asset,Status_Message");
+                    csv.Close();
+                }
+            } catch (e) {
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText = "Tracker Init Error: " + e.message;
+                }
+            }
+        }
+
+        function initializeSystem() {
+            ensureTrackerFiles();
+            runArpMonitor();
+            runRoutePrint();
+            runFirewallCheck();
+        }
+
+        function writeToCsvLog(eventType, targetDetails, statusText) {
+            try {
+                var now = new Date();
+                var isoTimestamp = now.getFullYear() + "-" + ("0" + (now.getMonth() + 1)).slice(-2) + "-" + ("0" + now.getDate()).slice(-2) + " " + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + ":" + ("0" + now.getSeconds()).slice(-2);
+                var file = fso.OpenTextFile(CSV_LOG_PATH, 8, true);
+                file.WriteLine('"' + isoTimestamp + '","' + eventType + '","' + targetDetails + '","' + statusText + '"');
+                file.Close();
+            } catch (err) {
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText += "\n[CSV Log Error] " + err.message;
+                }
+            }
+        }
+
+        function runArpMonitor() {
+            try {
+                var exec = shell.Exec("arp -a");
+                var output = exec.StdOut.ReadAll();
+                var lines = output.split("\n");
+                var check1 = false, check2 = false, check3 = false;
+                var validLinesCount = 0;
+                var htmlTableDump = "";
+                var currentArpEntries = [];
+
+                var arpSelect = document.getElementById('arp-selector');
+                while (arpSelect.options.length > 1) { arpSelect.remove(1); }
+
+                for (var i = 0; i < lines.length; i++) {
+                    var originalLine = lines[i];
+                    var cleanLine = originalLine.replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '').toLowerCase();
+
+                    if (cleanLine !== "" && cleanLine.indexOf("interface:") === -1 && cleanLine.indexOf("internet address") === -1) {
+                        validLinesCount++;
+                        if (cleanLine === target1) { check1 = true; originalLine = "<span class='highlight'>" + originalLine + "</span>"; }
+                        if (cleanLine === target2) { check2 = true; originalLine = "<span class='highlight'>" + originalLine + "</span>"; }
+                        if (cleanLine === target3) { check3 = true; originalLine = "<span class='highlight'>" + originalLine + "</span>"; }
+
+                        var parts = cleanLine.split(' ');
+                        if (parts.length >= 2) {
+                            var ip = parts[0];
+                            var mac = parts[1];
+                            currentArpEntries.push(ip + "|" + mac);
+                            var opt = document.createElement('option');
+                            opt.value = ip;
+                            opt.text = "IP: " + ip + " [" + mac + "]";
+                            arpSelect.add(opt);
+                        }
+                    }
+                    if (originalLine.trim() !== "") {
+                        htmlTableDump += originalLine + "\n";
+                    }
+                }
+
+                document.getElementById('table-box').innerHTML = htmlTableDump;
+                var statusBox = document.getElementById('status-box');
+                var newArpEntries = [];
+
+                if (previousArpEntries.length > 0) {
+                    for (var k = 0; k < currentArpEntries.length; k++) {
+                        if (previousArpEntries.indexOf(currentArpEntries[k]) === -1) {
+                            newArpEntries.push(currentArpEntries[k]);
+                        }
+                    }
+                }
+
+                previousArpEntries = currentArpEntries;
+
+                if (newArpEntries.length > 0) {
+                    statusBox.innerText = "ALERT: NEW ARP ENTRY DETECTED!";
+                    statusBox.className = "status alert";
+                    var timestamp = new Date().toLocaleTimeString();
+                    var detailText = "[" + timestamp + "] New ARP entry detected: " + newArpEntries.join(", ");
+                    document.getElementById('log-box').innerText = detailText;
+                    writeToCsvLog("ARP_NEW_ENTRY", newArpEntries.join(", "), "Detected a new ARP entry during scan.");
+                    alert("New ARP entry detected:\n" + newArpEntries.join("\n"));
+                    setTimeout(runArpMonitor, 2000);
+                    return;
+                }
+
+                if (check1 && check2 && check3 && validLinesCount === 3) {
+                    statusBox.innerText = "SYSTEM SECURE";
+                    statusBox.className = "status safe";
+                    if (document.getElementById('log-box').getAttribute("data-busy") !== "true") {
+                        var timestamp = new Date().toLocaleTimeString();
+                        document.getElementById('log-box').innerText = "[" + timestamp + "] Baseline matches. Active ARP records tracked: " + validLinesCount;
+                    }
+                    setTimeout(runArpMonitor, 2000);
+                } else {
+                    statusBox.innerText = "ALERT: TAMPERING DETECTED!";
+                    statusBox.className = "status alert";
+                    var timestamp = new Date().toLocaleTimeString();
+                    document.getElementById('log-box').innerText = "[" + timestamp + "] Network configuration mismatch! Items found: " + validLinesCount + "\nFlushing network interfaces...";
+                    triggerSecurityCleanup();
+                }
+            } catch (e) {
+                document.getElementById('log-box').innerText = "System Error: " + e.message;
+            }
+        }
+
+        function removeSelectedArp() {
+            var dropDown = document.getElementById('arp-selector');
+            var selectedIp = dropDown.options[dropDown.selectedIndex].value;
+            if (selectedIp === "") { alert("Please select a target ARP IP address to delete."); return; }
+
+            if (confirm("Permanently drop neighbor connection metadata for: " + selectedIp + "?")) {
+                shell.Run('cmd.exe /c netsh interface ipv4 delete neighbors ip=' + selectedIp, 0, true);
+                shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors ip=' + selectedIp, 0, true);
+                runArpMonitor();
+            }
+        }
+
+        function runRoutePrint() {
+            try {
+                var exec = shell.Exec("route print");
+                var output = exec.StdOut.ReadAll().replace(/\r/g, "").trim();
+                document.getElementById('route-box').innerText = output || "No route table data returned.";
+
+                var dropDown = document.getElementById('route-selector');
+                while (dropDown.options.length > 1) { dropDown.remove(1); }
+
+                var lines = output.split("\n");
+                var startParsing = false;
+
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].replace(/^\s+|\s+$/g, '');
+                    if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
+                    if (startParsing && (line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
+                        if (line.indexOf("===") !== -1 && dropDown.options.length > 1) startParsing = false;
+                        continue;
+                    }
+
+                    if (startParsing && line !== "") {
+                        var parts = line.replace(/\s+/g, ' ').split(' ');
+                        for (var j = 0; j < parts.length; j++) {
+                            if (/^\d{1,3}(\.\d{1,3}){3}$/.test(parts[j])) {
+                                var ipTarget = parts[j];
+                                var opt = document.createElement('option');
+                                opt.value = ipTarget;
+                                opt.text = "Dest: " + ipTarget;
+                                dropDown.add(opt);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (dropDown.options.length === 1) {
+                    var opt = document.createElement('option');
+                    opt.value = "";
+                    opt.text = "-- No route destinations parsed --";
+                    dropDown.add(opt);
+                }
+            } catch (e) {
+                document.getElementById('route-box').innerText = "Routing Error: " + e.message;
+            }
+        }
+
+        function removeSelectedRoute() {
+            var dropDown = document.getElementById('route-selector');
+            var selectedIp = dropDown.options[dropDown.selectedIndex].value;
+            if (selectedIp === "") { alert("Please select a valid network destination route."); return; }
+
+            if (confirm("Are you sure you want to run route delete targeting: " + selectedIp + "?")) {
+                shell.Run('cmd.exe /c route delete ' + selectedIp, 0, true);
+                runRoutePrint();
+            }
+        }
+
+        function runFirewallCheck() {
+            try {
+                if (fso.FileExists(TXT_GROUP_PATH)) {
+                    var file = fso.OpenTextFile(TXT_GROUP_PATH, 1);
+                    var contents = file.ReadAll();
+                    file.Close();
+
+                    var lines = contents.split(/\r?\n/);
+                    var displayLines = [];
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i].trim();
+                        if (line !== "" && line.indexOf("== SECGUARD LOCAL FIREWALL BLOCKED IPS GROUP ==") === -1) {
+                            if (line.indexOf("BLOCKED_IP:") !== -1 || line.indexOf("BLOCKED_IP") !== -1) {
+                                displayLines.push(line);
+                            }
+                        }
+                    }
+
+                    document.getElementById('firewall-box').innerText = displayLines.length > 0 ? displayLines.join("\n") : "No blocked IPs recorded yet. Use Block IP & Assign to Group to add one.";
+                } else {
+                    document.getElementById('firewall-box').innerText = "No active local GUI blocked group registry text discovered.";
+                }
+            } catch (e) {
+                document.getElementById('firewall-box').innerText = "Local Storage Fetch Error: " + e.message;
+            }
+        }
+
+        function deleteFirewallRuleByName() {
+            var ruleName = document.getElementById('firewall-rule-name').value.trim();
+            if (ruleName === "") { alert("Please enter a firewall rule name first."); return; }
+
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            logBox.setAttribute("data-busy", "true");
+            logBox.innerText = "[" + timestamp + "] Deleting firewall rule: " + ruleName + "\n";
+            try {
+                shell.Run('cmd.exe /c netsh advfirewall firewall delete rule name="' + ruleName + '"', 0, true);
+                logBox.innerText += "Delete command executed for rule: " + ruleName;
+                writeToCsvLog("FIREWALL_RULE_DELETE", ruleName, "Executed netsh advfirewall firewall delete rule name=...");
+            } catch (err) {
+                logBox.innerText += "\n[ERROR] Rule deletion failed: " + err.message;
+            }
+            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 4000);
+        }
+
+        function blockSelectedIp() {
+            var dropDown = document.getElementById('arp-selector');
+            var selectedIp = dropDown.options[dropDown.selectedIndex].value;
+            if (selectedIp === "") { alert("Please select a target IP out of the active ARP listings first."); return; }
+
+            if (confirm("Isolate target and attach to group '" + CUSTOM_BLOCK_GROUP + "'?\nThis locks down inbound and outbound firewall permissions for: " + selectedIp)) {
+                var logBox = document.getElementById('log-box');
+                logBox.setAttribute("data-busy", "true");
+                var timestamp = new Date().toLocaleTimeString();
+
+                try {
+                    shell.Run('cmd.exe /c netsh advfirewall firewall delete rule name="Block-Inbound-' + selectedIp + '"', 0, true);
+                    shell.Run('cmd.exe /c netsh advfirewall firewall delete rule name="Block-Outbound-' + selectedIp + '"', 0, true);
+                    shell.Run('cmd.exe /c netsh advfirewall firewall add rule name="Block-Inbound-' + selectedIp + '" dir=in action=block remoteip=' + selectedIp + ' group="' + CUSTOM_BLOCK_GROUP + '" description="SecGuard Automated Intrusion Group Containment"', 0, true);
+                    shell.Run('cmd.exe /c netsh advfirewall firewall add rule name="Block-Outbound-' + selectedIp + '" dir=out action=block remoteip=' + selectedIp + ' group="' + CUSTOM_BLOCK_GROUP + '" description="SecGuard Automated Intrusion Group Containment"', 0, true);
+                } catch (err) {
+                    logBox.innerText = "[" + timestamp + "] Firewall Isolation Warning: " + err.message;
+                }
+
+                try {
+                    var now = new Date();
+                    var simpleDate = now.toLocaleDateString() + " " + now.toLocaleTimeString();
+                    var file = fso.OpenTextFile(TXT_GROUP_PATH, 8, true);
+                    file.WriteLine("[" + simpleDate + "] BLOCKED_IP: " + selectedIp + " | Group Assignment: " + CUSTOM_BLOCK_GROUP);
+                    file.Close();
+                    logBox.innerText = "[" + timestamp + "] SUCCESS: Isolated " + selectedIp + " inside Firewall Group: " + CUSTOM_BLOCK_GROUP;
+                    writeToCsvLog("FIREWALL_BLOCK", selectedIp, "Assigned to Local GUI Blocklist group tracker.");
+                    runFirewallCheck();
+                } catch (err) {
+                    logBox.innerText = "[" + timestamp + "] Firewall Isolation Error: " + err.message;
+                }
+
+                setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 5000);
+            }
+        }
+
+        function startDnsLoop() {
+            if (dnsTimerId === null) {
+                document.getElementById('dns-state').innerText = "🔄 DNS LOOP: ACTIVE";
+                document.getElementById('dns-state').className = "dns-status dns-active";
+                dnsTimerId = setInterval(function() { shell.Run("ipconfig /flushdns", 0, false); }, 100);
+            }
+        }
+
+        function stopDnsLoop() {
+            if (dnsTimerId !== null) {
+                clearInterval(dnsTimerId);
+                dnsTimerId = null;
+                document.getElementById('dns-state').innerText = "⏹️ DNS LOOP: STOPPED";
+                document.getElementById('dns-state').className = "dns-status";
+            }
+        }
+
+        function triggerSecurityCleanup() {
+            stopDnsLoop();
+            shell.Run('net localgroup users "NT AUTHORITY\\authenticated Users" /delete', 0, true);
+            shell.Run('net localgroup users "NT AUTHORITY\\INTERACTIVE" /delete', 0, true);
+            shell.Run('netsh interface ipv4 delete neighbors', 0, true);
+            shell.Run('netsh interface ipv6 delete neighbors', 0, true);
+        }
+
+        function releaseDhcpLease() {
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            logBox.setAttribute("data-busy", "true");
+            logBox.innerText = "[" + timestamp + "] Releasing DHCP lease...\n";
+            try {
+                shell.Run('cmd.exe /c ipconfig /release', 0, true);
+                logBox.innerText += "DHCP release command completed.";
+                writeToCsvLog("IPCONFIG_RELEASE", "DHCP", "Executed ipconfig /release.");
+            } catch (err) {
+                logBox.innerText += "\n[ERROR] Release failed: " + err.message;
+            }
+            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 4000);
+        }
+
+        function renewDhcpLease() {
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            logBox.setAttribute("data-busy", "true");
+            logBox.innerText = "[" + timestamp + "] Renewing DHCP lease...\n";
+            try {
+                shell.Run('cmd.exe /c ipconfig /renew', 0, true);
+                logBox.innerText += "DHCP renew command completed.";
+                writeToCsvLog("IPCONFIG_RENEW", "DHCP", "Executed ipconfig /renew.");
+            } catch (err) {
+                logBox.innerText += "\n[ERROR] Renewal failed: " + err.message;
+            }
+            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 4000);
+        }
+
+        function showNetworkConnections() {
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            logBox.setAttribute("data-busy", "true");
+            logBox.innerText = "[" + timestamp + "] Running netstat -anob...\n";
+            try {
+                var exec = shell.Exec("cmd.exe /c netstat -anob");
+                var output = exec.StdOut.ReadAll();
+                logBox.innerText += output || "No network connection data returned.";
+                writeToCsvLog("NETSTAT_VIEW", "Connections", "Executed netstat -anob.");
+            } catch (err) {
+                logBox.innerText += "\n[ERROR] netstat failed: " + err.message;
+            }
+            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 6000);
+        }
+
+        function cleanRoutes() {
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            logBox.setAttribute("data-busy", "true");
+            logBox.innerText = "[" + timestamp + "] Cleaning routes...\n";
+            try {
+                shell.Run('cmd.exe /c route print', 0, true);
+                shell.Run('cmd.exe /c route delete ff00::/8', 0, true);
+                shell.Run('cmd.exe /c route delete ::1/128', 0, true);
+                shell.Run('cmd.exe /c route delete fe80::/64', 0, true);
+                shell.Run('cmd.exe /c route delete 127.0.0.0', 0, true);
+                shell.Run('cmd.exe /c route delete 224.0.0.0', 0, true);
+                shell.Run('cmd.exe /c route delete 255.255.255.255', 0, true);
+                shell.Run('cmd.exe /c route print', 0, true);
+                logBox.innerText += "Route cleanup sequence completed.";
+                writeToCsvLog("ROUTE_CLEANUP", "Custom cleanup", "Executed route delete cleanup sequence.");
+                runRoutePrint();
+            } catch (err) {
+                logBox.innerText += "\n[ERROR] Route cleanup failed: " + err.message;
+            }
+            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 6000);
+        }
+
+        function cleanRamAndCache() {
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            logBox.setAttribute("data-busy", "true");
+            logBox.innerText = "[" + timestamp + "] Initiating RAM and System Cache purification...\n";
+            try {
+                var userTemp = shell.ExpandEnvironmentStrings("%TEMP%");
+                var sysRoot = shell.ExpandEnvironmentStrings("%SystemRoot%");
+                shell.Run('cmd.exe /c del /q /f /s "' + userTemp + '\\*.*" && for /d %x in ("' + userTemp + '\\*") do rmdir /s /q "%x"', 0, true);
+                shell.Run('cmd.exe /c del /q /f /s "' + sysRoot + '\\Temp\\*.*" && for /d %x in ("' + sysRoot + '\\Temp\\*") do rmdir /s /q "%x"', 0, true);
+                shell.Run('net stop wuauserv', 0, true);
+                shell.Run('cmd.exe /c del /q /f /s "' + sysRoot + '\\SoftwareDistribution\\Download\\*.*"', 0, true);
+                shell.Run('net start wuauserv', 0, true);
+                shell.Run('ipconfig /flushdns', 0, true);
+                logBox.innerText += "Memory and Cache cleared successfully!";
+            } catch (err) {
+                logBox.innerText += "\n[ERROR] Optimization interrupted: " + err.message;
+            }
+            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 6000);
+        }
+    </script>
+</head>
+<body onload="initializeSystem()">
+    <div class="card">
+        <h1>ARP Table Guard Status</h1>
+        <div id="status-box" class="status safe">Initializing Monitor Engine...</div>
+
+        <h3>Live Event Monitor Log:</h3>
+        <pre id="log-box" class="pre log-box" data-busy="false">Awaiting first scan cycle...</pre>
+
+        <h3>Live System ARP Table Output (arp -a):</h3>
+        <pre id="table-box" class="pre table-box">Loading ARP records...</pre>
+
+        <h3 style="color: #38bdf8; margin-top: 10px;">Select a Target ARP Record to Manage / Isolate:</h3>
+        <select id="arp-selector" style="width: 100%; background: #020617; color: #38bdf8; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px; margin-bottom: 6px;">
+            <option value="">-- Choose an active ARP connection entry --</option>
+        </select>
+        <div style="display: flex; gap: 8px; margin-bottom: 5px;">
+            <button class="btn" style="background: #eab308; color: #020617; flex: 1; height: 30px; margin:0;" onclick="blockSelectedIp()">⚠️ Block IP & Assign to Group</button>
+            <button class="btn" style="background: #9f1239; width: 150px; height: 30px; margin:0;" onclick="removeSelectedArp()">Delete ARP</button>
+        </div>
+
+        <h3 style="color: #eab308;">Local GUI Stored Block List Group Tracker:</h3>
+        <pre id="firewall-box" class="pre route-box" style="color: #fde047; height: 90px;">Reading active file tracking parameters...</pre>
+        <div style="margin-top: 6px; margin-bottom: 8px;">
+            <input id="firewall-rule-name" type="text" placeholder="Enter firewall rule name" style="width: 100%; background: #020617; color: #fde047; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; box-sizing: border-box;" />
+            <button class="btn btn-scan" style="background: #ca8a04; margin-top: 6px;" onclick="deleteFirewallRuleByName()">Delete Firewall Rule</button>
+        </div>
+
+        <h3>Active Windows IP Routing Table (route print):</h3>
+        <pre id="route-box" class="pre route-box">Reading Windows kernel route table entries...</pre>
+
+        <h3 style="color: #a7f3d0; margin-top: 10px;">Select a Target Route Destination to Delete:</h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 5px;">
+            <select id="route-selector" style="flex: 1; background: #020617; color: #34d399; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                <option value="">-- Choose an active IP route destination --</option>
+            </select>
+            <button class="btn" style="background: #be123c; width: 150px; height: 30px; margin:0;" onclick="removeSelectedRoute()">Delete Route</button>
+        </div>
+
+        <div class="controls-grid">
+            <div class="col">
+                <h3>Monitor Diagnostics:</h3>
+                <button class="btn btn-scan" onclick="runArpMonitor()">Rescan ARP Table</button>
+                <button class="btn btn-scan" style="background: #7c3aed;" onclick="runRoutePrint()">Show Route Table</button>
+                <button class="btn btn-scan" style="background: #0f766e;" onclick="releaseDhcpLease()">Release DHCP</button>
+                <button class="btn btn-scan" style="background: #2563eb;" onclick="renewDhcpLease()">Renew DHCP</button>
+                <button class="btn btn-scan" style="background: #7c2d12;" onclick="cleanRoutes()">Clean Routes</button>
+                <button class="btn btn-scan" style="background: #312e81;" onclick="showNetworkConnections()">Show Network Connections</button>
+                <button class="btn" style="background: #dc2626;" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
+                <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
+            </div>
+            <div class="col">
+                <h3>DNS Overdrive Engine:</h3>
+                <button class="btn btn-start" onclick="startDnsLoop()">Start DNS Flush</button>
+                <button class="btn btn-stop" onclick="stopDnsLoop()">Stop DNS Flush</button>
+                <div id="dns-state" class="dns-status">⏹️ DNS LOOP: STOPPED</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
