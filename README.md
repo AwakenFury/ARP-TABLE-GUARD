@@ -5,7 +5,7 @@
 
 
 <p align="center">
-  <a href="https://awakenfury.github.io/BioSignal-Interface/">
+  <a href="https://awakenfury.github.io/ARP-TABLE-GUARD/">
     🌐 Live Demo
   </a>
 </p>
