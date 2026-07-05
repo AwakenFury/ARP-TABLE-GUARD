@@ -25,6 +25,7 @@
         .log-box { height: 180px; color: #e2e8f0; }
         .table-box { height: 110px; color: #cbd5e1; border: 1px solid #334155; }
         .route-box { height: 110px; color: #a7f3d0; border: 1px solid #334155; }
+        .rules-box { height: 120px; color: #d1fae5; border: 1px solid #334155; }
         .highlight { color: #34d399; font-weight: bold; }
         .controls-grid { display: flex; flex-direction: row; gap: 10px; margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; }
         .col { flex: 1; display: flex; flex-direction: column; gap: 5px; }
@@ -42,6 +43,8 @@
 
         var shell = new ActiveXObject("WScript.Shell");
         var fso = new ActiveXObject("Scripting.FileSystemObject");
+        var isFullscreenMode = false;
+        var normalWindowBounds = { left: 0, top: 0, width: 640, height: 1080 };
         var dnsTimerId = null;
         var deletedRefreshTimerId = null;
         var TXT_GROUP_PATH = "C:\\NetworkMonitor\\blocked_ips_tracker.txt";
@@ -49,6 +52,10 @@
         var DELETED_TRACKER_FALLBACK_PATHS = ["C:\\Users\\Administrator\\Documents\\deleted_items_tracker.txt", "C:\\Temp\\deleted_items_tracker.txt"];
         var CSV_LOG_PATH = "C:\\NetworkMonitor\\security_events.csv";
         var previousArpEntries = [];
+        var previousFirewallRuleStates = {};
+        var firewallRulesInitialized = false;
+        var firewallRuleViewModeIn = "all";
+        var firewallRuleViewModeOut = "all";
         var CUSTOM_BLOCK_GROUP = "SecGuard_Blocked_IPs";
 
         var target1 = "72.69.1.1 cc-e1-7f-90-4a-cb dynamic";
@@ -90,10 +97,19 @@
         }
 
         function initializeSystem() {
+            try {
+                normalWindowBounds = {
+                    left: window.screenLeft || 0,
+                    top: window.screenTop || 0,
+                    width: document.body ? document.body.clientWidth + 32 : 640,
+                    height: document.body ? document.body.clientHeight + 120 : 1080
+                };
+            } catch (ignoreBoundsErr) {}
             ensureTrackerFiles();
             runArpMonitor();
             runRoutePrint();
             runFirewallCheck();
+            runFirewallRulesPanel();
             if (deletedRefreshTimerId === null) {
                 deletedRefreshTimerId = setInterval(runFirewallCheck, 3000);
             }
@@ -105,6 +121,33 @@
                 if (dnsTimerId !== null) clearInterval(dnsTimerId);
             } catch (e) {}
         };
+
+        function toggleFullscreenMode() {
+            try {
+                var toggleBtn = document.getElementById('fullscreen-toggle-btn');
+                if (!isFullscreenMode) {
+                    normalWindowBounds = {
+                        left: window.screenLeft || 0,
+                        top: window.screenTop || 0,
+                        width: window.outerWidth || 640,
+                        height: window.outerHeight || 1080
+                    };
+                    window.moveTo(0, 0);
+                    window.resizeTo(screen.availWidth, screen.availHeight);
+                    isFullscreenMode = true;
+                    if (toggleBtn) toggleBtn.innerText = 'Exit Full Screen';
+                } else {
+                    window.moveTo(normalWindowBounds.left, normalWindowBounds.top);
+                    window.resizeTo(normalWindowBounds.width, normalWindowBounds.height);
+                    isFullscreenMode = false;
+                    if (toggleBtn) toggleBtn.innerText = 'Full Screen';
+                }
+            } catch (err) {
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText += '\n[Full Screen Error] ' + err.message;
+                }
+            }
+        }
 
         function writeToCsvLog(eventType, targetDetails, statusText) {
             try {
@@ -444,6 +487,221 @@
                 document.getElementById('firewall-box').innerText = lines.length > 0 ? lines.join("\n") : "No deleted entries recorded yet.";
             } catch (e) {
                 document.getElementById('firewall-box').innerText = "Local Storage Fetch Error: " + e.message;
+            }
+        }
+
+        function runFirewallRulesPanel() {
+            try {
+                var inPanel = document.getElementById('firewall-rules-in-box');
+                var outPanel = document.getElementById('firewall-rules-out-box');
+                var inSummary = document.getElementById('firewall-rules-in-summary');
+                var outSummary = document.getElementById('firewall-rules-out-summary');
+                var inSelector = document.getElementById('firewall-rule-in-selector');
+                var outSelector = document.getElementById('firewall-rule-out-selector');
+                if (!inPanel || !outPanel || !inSelector || !outSelector || !inSummary || !outSummary) return;
+
+                while (inSelector.options.length > 1) { inSelector.remove(1); }
+                while (outSelector.options.length > 1) { outSelector.remove(1); }
+
+                inPanel.innerText = "Loading incoming firewall rules...";
+                outPanel.innerText = "Loading outgoing firewall rules...";
+                var exec = shell.Exec("cmd.exe /c netsh advfirewall firewall show rule name=all");
+                var output = exec.StdOut.ReadAll();
+                var lines = output.split(/\r?\n/);
+
+                var inbound = [];
+                var outbound = [];
+                var currentRule = null;
+                var currentRuleStates = {};
+                var newRuleKeys = [];
+                var changedInCount = 0;
+                var changedOutCount = 0;
+
+                function pushFirewallRule(rule) {
+                    if (!rule || !rule.name || !rule.direction) return;
+                    var direction = rule.direction.toLowerCase();
+                    var enabled = (rule.enabled || "Unknown");
+                    var key = direction + "|" + rule.name;
+                    var item = { name: rule.name, enabled: enabled, key: key };
+                    currentRuleStates[key] = enabled;
+
+                    if (direction.indexOf("in") === 0) inbound.push(item);
+                    else if (direction.indexOf("out") === 0) outbound.push(item);
+                }
+
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i] || "";
+                    var trimmed = line.replace(/^\s+|\s+$/g, '');
+
+                    if (/^Rule Name:\s*/i.test(trimmed)) {
+                        if (currentRule !== null) pushFirewallRule(currentRule);
+                        currentRule = {
+                            name: trimmed.replace(/^Rule Name:\s*/i, ''),
+                            direction: "",
+                            enabled: "Unknown"
+                        };
+                        continue;
+                    }
+
+                    if (currentRule !== null && /^Enabled:\s*/i.test(trimmed)) {
+                        currentRule.enabled = trimmed.replace(/^Enabled:\s*/i, '');
+                        continue;
+                    }
+
+                    if (currentRule !== null && /^Direction:\s*/i.test(trimmed)) {
+                        currentRule.direction = trimmed.replace(/^Direction:\s*/i, '');
+                        continue;
+                    }
+
+                    if (currentRule !== null && trimmed === "") {
+                        pushFirewallRule(currentRule);
+                        currentRule = null;
+                    }
+                }
+                if (currentRule !== null) pushFirewallRule(currentRule);
+
+                for (var key in currentRuleStates) {
+                    if (!currentRuleStates.hasOwnProperty(key)) continue;
+
+                    if (!previousFirewallRuleStates[key]) {
+                        newRuleKeys.push(key);
+                        if (key.indexOf('in|') === 0) changedInCount++;
+                        else if (key.indexOf('out|') === 0) changedOutCount++;
+                    } else if (previousFirewallRuleStates[key] !== currentRuleStates[key]) {
+                        if (key.indexOf('in|') === 0) changedInCount++;
+                        else if (key.indexOf('out|') === 0) changedOutCount++;
+                    }
+                }
+
+                var inboundEnabled = 0;
+                var inboundDisabled = 0;
+                var outboundEnabled = 0;
+                var outboundDisabled = 0;
+                for (var ic = 0; ic < inbound.length; ic++) {
+                    if ((inbound[ic].enabled || "").toLowerCase() === "yes") inboundEnabled++;
+                    else if ((inbound[ic].enabled || "").toLowerCase() === "no") inboundDisabled++;
+                }
+                for (var oc = 0; oc < outbound.length; oc++) {
+                    if ((outbound[oc].enabled || "").toLowerCase() === "yes") outboundEnabled++;
+                    else if ((outbound[oc].enabled || "").toLowerCase() === "no") outboundDisabled++;
+                }
+
+                var filteredInbound = [];
+                var filteredOutbound = [];
+                for (var fi = 0; fi < inbound.length; fi++) {
+                    if (firewallRuleViewModeIn === "all" || (firewallRuleViewModeIn === "block" && (inbound[fi].enabled || "").toLowerCase() === "yes") || (firewallRuleViewModeIn === "unblock" && (inbound[fi].enabled || "").toLowerCase() === "no")) {
+                        filteredInbound.push(inbound[fi]);
+                    }
+                }
+                for (var fo = 0; fo < outbound.length; fo++) {
+                    if (firewallRuleViewModeOut === "all" || (firewallRuleViewModeOut === "block" && (outbound[fo].enabled || "").toLowerCase() === "yes") || (firewallRuleViewModeOut === "unblock" && (outbound[fo].enabled || "").toLowerCase() === "no")) {
+                        filteredOutbound.push(outbound[fo]);
+                    }
+                }
+
+                var modeLabelIn = firewallRuleViewModeIn === "block" ? "BLOCKED" : (firewallRuleViewModeIn === "unblock" ? "UNBLOCKED" : "ALL");
+                var modeLabelOut = firewallRuleViewModeOut === "block" ? "BLOCKED" : (firewallRuleViewModeOut === "unblock" ? "UNBLOCKED" : "ALL");
+                var inboundPreview = filteredInbound.length > 0 ? filteredInbound.slice(0, 120).map(function(rule) { return "[" + rule.enabled + "] " + rule.name; }).join("\n") : "(none)";
+                var outboundPreview = filteredOutbound.length > 0 ? filteredOutbound.slice(0, 120).map(function(rule) { return "[" + rule.enabled + "] " + rule.name; }).join("\n") : "(none)";
+                inPanel.innerText = "INCOMING RULES - " + modeLabelIn + " (" + filteredInbound.length + "/" + inbound.length + ")\n" + inboundPreview;
+                outPanel.innerText = "OUTGOING RULES - " + modeLabelOut + " (" + filteredOutbound.length + "/" + outbound.length + ")\n" + outboundPreview;
+                inSummary.innerText = "Enabled: " + inboundEnabled + " | Disabled: " + inboundDisabled + " | Changed: " + changedInCount;
+                outSummary.innerText = "Enabled: " + outboundEnabled + " | Disabled: " + outboundDisabled + " | Changed: " + changedOutCount;
+
+                var seenIn = {};
+                var seenOut = {};
+                for (var a = 0; a < filteredInbound.length; a++) {
+                    if (!seenIn[filteredInbound[a].name]) {
+                        seenIn[filteredInbound[a].name] = true;
+                        var inOpt = document.createElement('option');
+                        inOpt.value = filteredInbound[a].name;
+                        inOpt.text = "[" + filteredInbound[a].enabled + "] " + filteredInbound[a].name;
+                        inSelector.add(inOpt);
+                    }
+                }
+                for (var b = 0; b < filteredOutbound.length; b++) {
+                    if (!seenOut[filteredOutbound[b].name]) {
+                        seenOut[filteredOutbound[b].name] = true;
+                        var outOpt = document.createElement('option');
+                        outOpt.value = filteredOutbound[b].name;
+                        outOpt.text = "[" + filteredOutbound[b].enabled + "] " + filteredOutbound[b].name;
+                        outSelector.add(outOpt);
+                    }
+                }
+
+                if (firewallRulesInitialized && newRuleKeys.length > 0) {
+                    var newRuleNames = [];
+                    for (var nr = 0; nr < newRuleKeys.length && nr < 15; nr++) {
+                        newRuleNames.push(newRuleKeys[nr].replace(/^[^|]+\|/, ''));
+                    }
+                    showStyledAlert(
+                        'New Firewall Rule Detected',
+                        'SecGuard detected new incoming or outgoing firewall rules.',
+                        newRuleNames.join("\n") + (newRuleKeys.length > 15 ? "\n...and more" : "")
+                    );
+                }
+
+                previousFirewallRuleStates = currentRuleStates;
+                firewallRulesInitialized = true;
+            } catch (e) {
+                var inErr = document.getElementById('firewall-rules-in-box');
+                var outErr = document.getElementById('firewall-rules-out-box');
+                if (inErr) inErr.innerText = "Firewall Incoming Rules Read Error: " + e.message;
+                if (outErr) outErr.innerText = "Firewall Outgoing Rules Read Error: " + e.message;
+            }
+        }
+
+        function setFirewallRuleViewMode(direction, mode) {
+            if (direction === 'out') firewallRuleViewModeOut = mode;
+            else firewallRuleViewModeIn = mode;
+            try {
+                var prefix = direction === 'out' ? 'firewall-view-out-' : 'firewall-view-in-';
+                var allBtn = document.getElementById(prefix + 'all-btn');
+                var blockBtn = document.getElementById(prefix + 'block-btn');
+                var unblockBtn = document.getElementById(prefix + 'unblock-btn');
+                if (allBtn) allBtn.style.opacity = mode === 'all' ? '1' : '0.65';
+                if (blockBtn) blockBtn.style.opacity = mode === 'block' ? '1' : '0.65';
+                if (unblockBtn) unblockBtn.style.opacity = mode === 'unblock' ? '1' : '0.65';
+            } catch (ignoreErr) {}
+            runFirewallRulesPanel();
+        }
+
+        function toggleFirewallRuleByDirection(direction, enableState) {
+            try {
+                var selectorId = direction === 'out' ? 'firewall-rule-out-selector' : 'firewall-rule-in-selector';
+                var selector = document.getElementById(selectorId);
+                if (!selector || selector.selectedIndex < 0) {
+                    alert('Please select a firewall rule first.');
+                    return;
+                }
+
+                var ruleName = selector.options[selector.selectedIndex].value;
+                if (!ruleName) {
+                    alert('Please select a valid firewall rule.');
+                    return;
+                }
+
+                var actionText = enableState === 'yes' ? 'block' : 'unblock';
+                if (!confirm('Are you sure you want to ' + actionText + ' this ' + direction + ' rule?\n' + ruleName)) return;
+
+                var logBox = document.getElementById('log-box');
+                var timestamp = new Date().toLocaleTimeString();
+                if (logBox) {
+                    logBox.setAttribute('data-busy', 'true');
+                    logBox.innerText = '[' + timestamp + '] Applying firewall rule change: ' + ruleName;
+                }
+
+                shell.Run('cmd.exe /c netsh advfirewall firewall set rule name="' + ruleName + '" dir=' + direction + ' new enable=' + enableState, 0, true);
+                writeToCsvLog('FIREWALL_RULE_TOGGLE', ruleName, 'Set dir=' + direction + ' action=' + actionText + ' via enable=' + enableState);
+                if (logBox) {
+                    logBox.innerText += '\n[INFO] Rule updated: ' + ruleName + ' (' + direction + ', ' + actionText + ')';
+                    setTimeout(function() { logBox.setAttribute('data-busy', 'false'); }, 3000);
+                }
+
+                runFirewallRulesPanel();
+            } catch (err) {
+                var lbox = document.getElementById('log-box');
+                if (lbox) lbox.innerText += '\n[Firewall Rule Toggle Error] ' + err.message;
             }
         }
 
@@ -826,48 +1084,52 @@
             var logBox = document.getElementById('log-box');
             var timestamp = new Date().toLocaleTimeString();
             logBox.setAttribute("data-busy", "true");
-            logBox.innerText = "[" + timestamp + "] Cleaning routes...\n";
+            logBox.innerText = "[" + timestamp + "] Cleaning routes (preserving 0.0.0.0)...\n";
             try {
-                shell.Run('cmd.exe /c route print', 0, true);
-                shell.Run('cmd.exe /c route delete ff00::/8', 0, true);
-                shell.Run('cmd.exe /c route delete ::1/128', 0, true);
-                shell.Run('cmd.exe /c route delete ::1/128', 0, true);
-                shell.Run('cmd.exe /c route delete fe80::/64', 0, true);
-                shell.Run('cmd.exe /c route delete fe80::d4d5:37b:6503:5972/128', 0, true);
-                shell.Run('cmd.exe /c route delete ff00::/8', 0, true);
-                shell.Run('cmd.exe /c route delete ff00::/8', 0, true);
-                shell.Run('cmd.exe /c route delete fe80::39df:7e94:f560:38ca/128', 0, true);
+                var exec = shell.Exec("cmd.exe /c route print");
+                var output = exec.StdOut.ReadAll().replace(/\r/g, "");
+                var lines = output.split("\n");
+                var startParsing = false;
+                var seenTargets = {};
+                var targets = [];
 
-                shell.Run('cmd.exe /c route delete 96.246.55.0', 0, true);
-                shell.Run('cmd.exe /c route delete 96.246.55.166', 0, true);
-                shell.Run('cmd.exe /c route delete 96.246.55.255', 0, true);
-                shell.Run('cmd.exe /c route delete 127.0.0.1', 0, true);
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].replace(/^\s+|\s+$/g, '');
+                    if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
+                    if (startParsing && (line === "" || line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
+                        startParsing = false;
+                        continue;
+                    }
+                    if (!startParsing || line === "") continue;
 
-                shell.Run('cmd.exe /c route delete 72.69.144.221', 0, true);
-                shell.Run('cmd.exe /c route delete 72.69.144.255', 0, true);
-                shell.Run('cmd.exe /c route delete 192.168.0.0', 0, true);
-                shell.Run('cmd.exe /c route delete 127.0.0.0', 0, true);
-                shell.Run('cmd.exe /c route delete 127.0.0.1', 0, true);
-                shell.Run('cmd.exe /c route delete 192.168.0.100', 0, true);
-                shell.Run('cmd.exe /c route delete 192.168.0.255', 0, true);
+                    var normalized = line.replace(/\s+/g, ' ');
+                    if (/^if metric network destination gateway$/i.test(normalized) || /^network destination netmask gateway interface metric$/i.test(normalized) || /^-+$/.test(normalized)) {
+                        continue;
+                    }
 
-                shell.Run('cmd.exe /c route delete 100.37.82.255', 0, true);
-                shell.Run('cmd.exe /c route delete 100.37.82.67', 0, true);
-                shell.Run('cmd.exe /c route delete 100.37.82.0', 0, true);
-                shell.Run('cmd.exe /c route delete 100.37.82.67', 0, true);
-                shell.Run('cmd.exe /c route delete 100.37.82.255', 0, true);
-                shell.Run('cmd.exe /c route delete 100.37.196.0', 0, true);
-                shell.Run('cmd.exe /c route delete 100.37.196.83', 0, true);
-                shell.Run('cmd.exe /c route delete 100.37.196.255', 0, true);
-                shell.Run('cmd.exe /c route delete 127.255.255.255', 0, true);
-                shell.Run('cmd.exe /c route delete 224.0.0.0', 0, true);
-                shell.Run('cmd.exe /c route delete 224.0.0.0', 0, true);
-                shell.Run('cmd.exe /c route delete 255.255.255.255', 0, true);
-                shell.Run('cmd.exe /c route delete 255.255.255.255', 0, true);
+                    var parts = normalized.split(' ');
+                    var destination = "";
 
-                shell.Run('cmd.exe /c route print', 0, true);
-                logBox.innerText += "Route cleanup sequence completed.";
-                writeToCsvLog("ROUTE_CLEANUP", "Custom cleanup", "Executed route delete cleanup sequence.");
+                    if (parts.length >= 4 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+                        destination = parts[2];
+                    } else if (parts.length >= 5) {
+                        destination = parts[0];
+                    }
+
+                    if (destination === "0.0.0.0") continue;
+
+                    if ((/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(destination) || /^[0-9a-f:]+(\/\d{1,3})?$/i.test(destination)) && !seenTargets[destination]) {
+                        seenTargets[destination] = true;
+                        targets.push(destination);
+                    }
+                }
+
+                for (var t = 0; t < targets.length; t++) {
+                    shell.Run('cmd.exe /c route delete "' + targets[t] + '"', 0, true);
+                }
+
+                logBox.innerText += "Deleted routes: " + targets.length + "\nPreserved: 0.0.0.0";
+                writeToCsvLog("ROUTE_CLEANUP", "Preserve 0.0.0.0", "Deleted " + targets.length + " routes while preserving 0.0.0.0");
                 runRoutePrint();
             } catch (err) {
                 logBox.innerText += "\n[ERROR] Route cleanup failed: " + err.message;
@@ -901,7 +1163,9 @@
             var timestamp = new Date().toLocaleTimeString();
             if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting Network Reset...'; }
             try {
-                var batchPath = 'C:\\NetworkMonitor\\network_reset.bat';
+                var preferredBatchPath = 'C:\\Users\\Administrator\\Documents\\Update Security 2024\\Network Reset.bat';
+                var fallbackBatchPath = 'C:\\NetworkMonitor\\network_reset.bat';
+                var batchPath = fso.FileExists(preferredBatchPath) ? preferredBatchPath : fallbackBatchPath;
                 if (!fso.FileExists(batchPath)) {
                     if (logBox) logBox.innerText += '\n[ERROR] Network reset script not found: ' + batchPath;
                     return;
@@ -909,7 +1173,7 @@
                 // Launch visible command window to run the batch so user can see progress
                 shell.Run('cmd.exe /c start "Network Reset" "' + batchPath + '"', 1, false);
                 writeToCsvLog('NETWORK_RESET', batchPath, 'Started network reset via UI');
-                if (logBox) logBox.innerText += '\n[INFO] Network Reset started.';
+                if (logBox) logBox.innerText += '\n[INFO] Network Reset started from: ' + batchPath;
             } catch (err) {
                 if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
             }
@@ -936,20 +1200,70 @@
             setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
         }
 
+        function runLockdownFirewallRules() {
+            if (!confirm('Import Lockdown Firewall Rules now?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            var firewallPath = 'C:\\Users\\Administrator\\Documents\\Lockdown2.wfw';
+            if (logBox) {
+                logBox.setAttribute('data-busy', 'true');
+                logBox.innerText = '[' + timestamp + '] Importing Lockdown Firewall Rules...';
+            }
+            try {
+                if (!fso.FileExists(firewallPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Lockdown firewall file not found: ' + firewallPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c netsh advfirewall import "' + firewallPath + '"', 0, true);
+                writeToCsvLog('FIREWALL_MODE_LOCKDOWN', firewallPath, 'Imported Lockdown2.wfw via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Lockdown firewall rules imported.';
+                runFirewallRulesPanel();
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runGameModeFirewallRules() {
+            if (!confirm('Apply Game Mode firewall rules now?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) {
+                logBox.setAttribute('data-busy', 'true');
+                logBox.innerText = '[' + timestamp + '] Applying Game Mode firewall rules...';
+            }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\game_mode.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Game Mode script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Game Mode Firewall" "' + batchPath + '"', 1, false);
+                writeToCsvLog('FIREWALL_MODE_GAME', batchPath, 'Started game mode firewall rules via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Game Mode firewall rules started.';
+                setTimeout(runFirewallRulesPanel, 1500);
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
         function resetNetworkSecurityPolicy() {
             if (!confirm('Reset local network security policy?')) return;
             var logBox = document.getElementById('log-box');
             var timestamp = new Date().toLocaleTimeString();
             if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Resetting local security policy...'; }
             try {
-                var batchPath = 'C:\\NetworkMonitor\\reset_network_security_policy.bat';
+                var preferredBatchPath = 'C:\\Users\\Administrator\\Documents\\Update Security 2024\\Network Reset.bat';
+                var fallbackBatchPath = 'C:\\NetworkMonitor\\reset_network_security_policy.bat';
+                var batchPath = fso.FileExists(preferredBatchPath) ? preferredBatchPath : fallbackBatchPath;
                 if (!fso.FileExists(batchPath)) {
                     if (logBox) logBox.innerText += '\n[ERROR] Security policy reset script not found: ' + batchPath;
                     return;
                 }
                 shell.Run('cmd.exe /c start "Reset Security Policy" "' + batchPath + '"', 1, false);
                 writeToCsvLog('SECURITY_POLICY_RESET', batchPath, 'Started network security policy reset via UI');
-                if (logBox) logBox.innerText += '\n[INFO] Security policy reset started.';
+                if (logBox) logBox.innerText += '\n[INFO] Security policy reset started from: ' + batchPath;
             } catch (err) {
                 if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
             }
@@ -977,19 +1291,24 @@
         }
 
         function runSafeMode() {
-            if (!confirm('Apply Safe Mode hardening changes? This will modify service startup values and registry settings.')) return;
+            if (!confirm('Set boot configuration to Safe Mode (minimal)?')) return;
             var logBox = document.getElementById('log-box');
             var timestamp = new Date().toLocaleTimeString();
-            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting Safe Mode hardening...'; }
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Setting Safe Mode boot configuration...'; }
             try {
-                var batchPath = 'C:\\NetworkMonitor\\safe_mode.bat';
-                if (!fso.FileExists(batchPath)) {
-                    if (logBox) logBox.innerText += '\n[ERROR] Safe Mode script not found: ' + batchPath;
-                    return;
+                shell.Run('cmd.exe /c bcdedit /set {default} bootmenupolicy legacy', 0, true);
+                shell.Run('cmd.exe /c bcdedit /set {current} safeboot minimal', 0, true);
+                writeToCsvLog('SAFE_MODE', '{current}', 'Executed bcdedit /set {default} bootmenupolicy legacy and bcdedit /set {current} safeboot minimal via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Legacy boot menu policy set and Safe Mode boot option configured.';
+
+                if (confirm('Safe Mode has been configured. Restart now to boot into Safe Mode?')) {
+                    if (logBox) logBox.innerText += '\n[INFO] Restart confirmed. Rebooting now...';
+                    writeToCsvLog('SAFE_MODE_RESTART', '{current}', 'User confirmed immediate restart into Safe Mode.');
+                    shell.Run('cmd.exe /c shutdown /r /t 0', 0, false);
+                } else {
+                    if (logBox) logBox.innerText += '\n[INFO] Restart canceled. Reboot later to enter Safe Mode.';
+                    writeToCsvLog('SAFE_MODE_RESTART', '{current}', 'User canceled immediate restart after Safe Mode configuration.');
                 }
-                shell.Run('cmd.exe /c start "Safe Mode" "' + batchPath + '"', 1, false);
-                writeToCsvLog('SAFE_MODE', batchPath, 'Started Safe Mode hardening via UI');
-                if (logBox) logBox.innerText += '\n[INFO] Safe Mode started.';
             } catch (err) {
                 if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
             }
@@ -1017,19 +1336,15 @@
         }
 
         function runEnableBootMode() {
-            if (!confirm('Enable legacy boot menu policy?')) return;
+            if (!confirm('Disable Safe Mode boot flag and return to normal boot?')) return;
             var logBox = document.getElementById('log-box');
             var timestamp = new Date().toLocaleTimeString();
-            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Enabling boot mode...'; }
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Removing Safe Mode boot flag...'; }
             try {
-                var batchPath = 'C:\\NetworkMonitor\\enable_boot_mode.bat';
-                if (!fso.FileExists(batchPath)) {
-                    if (logBox) logBox.innerText += '\n[ERROR] Enable Boot Mode script not found: ' + batchPath;
-                    return;
-                }
-                shell.Run('cmd.exe /c start "Enable Boot Mode" "' + batchPath + '"', 1, false);
-                writeToCsvLog('ENABLE_BOOT_MODE', batchPath, 'Started Enable Boot Mode via UI');
-                if (logBox) logBox.innerText += '\n[INFO] Enable Boot Mode started.';
+                shell.Run('cmd.exe /c bcdedit /set {default} bootmenupolicy legacy', 0, true);
+                shell.Run('cmd.exe /c bcdedit /deletevalue {current} safeboot', 0, true);
+                writeToCsvLog('ENABLE_BOOT_MODE', '{current}', 'Executed bcdedit /set {default} bootmenupolicy legacy and bcdedit /deletevalue {current} safeboot via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Legacy boot menu policy set and Safe Mode boot flag removed.';
             } catch (err) {
                 if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
             }
@@ -1050,6 +1365,81 @@
                 shell.Run('cmd.exe /c start "Disable Multicast" "' + batchPath + '"', 1, false);
                 writeToCsvLog('DISABLE_MULTICAST', batchPath, 'Started Disable Multicast via UI');
                 if (logBox) logBox.innerText += '\n[INFO] Disable Multicast started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runDisableServices() {
+            if (!confirm('Run Disable Services registry/service startup changes?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Applying Disable Services configuration...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\disable_services.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Disable Services script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Disable Services" "' + batchPath + '"', 1, false);
+                writeToCsvLog('DISABLE_SERVICES', batchPath, 'Started disable services configuration via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Disable Services started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runEnableServices() {
+            if (!confirm('Run Enable Services registry/service startup changes?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Applying Enable Services configuration...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\enable_services.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Enable Services script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Enable Services" "' + batchPath + '"', 1, false);
+                writeToCsvLog('ENABLE_SERVICES', batchPath, 'Started enable services configuration via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Enable Services started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runGameMode() {
+            if (!confirm('Run Game Mode configuration now?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting Game Mode configuration...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\game_mode.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Game Mode script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Game Mode" "' + batchPath + '"', 1, false);
+                writeToCsvLog('GAME_MODE', batchPath, 'Started game mode configuration via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Game Mode started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function repairCorruptedSystemFiles() {
+            if (!confirm('Run DISM /Online /Cleanup-Image /RestoreHealth to repair corrupted system files?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting DISM repair...'; }
+            try {
+                shell.Run('cmd.exe /c DISM /Online /Cleanup-Image /RestoreHealth', 0, true);
+                writeToCsvLog('DISM_REPAIR', 'DISM /Online /Cleanup-Image /RestoreHealth', 'Started corrupted system files repair via UI');
+                if (logBox) logBox.innerText += '\n[INFO] DISM repair command started.';
             } catch (err) {
                 if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
             }
@@ -1137,6 +1527,49 @@
             </div>
         </div>
 
+        <h3 style="color: #86efac;">Windows Firewall Incoming Rules:</h3>
+        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px;">
+            <button id="firewall-view-in-all-btn" class="btn" style="background:#334155; flex:1; margin:0;" onclick="setFirewallRuleViewMode('in','all')">All</button>
+            <button id="firewall-view-in-block-btn" class="btn" style="background:#15803d; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('in','block')">Block</button>
+            <button id="firewall-view-in-unblock-btn" class="btn" style="background:#b91c1c; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('in','unblock')">Unblock</button>
+        </div>
+        <div id="firewall-rules-in-summary" class="dns-status" style="color:#86efac; margin-bottom:4px;">Enabled: 0 | Disabled: 0 | Changed: 0</div>
+        <pre id="firewall-rules-in-box" class="pre rules-box">Loading incoming firewall rules...</pre>
+        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px; align-items:center;">
+            <select id="firewall-rule-in-selector" style="flex:1; background:#020617; color:#86efac; border:1px solid #334155; padding:6px; border-radius:6px; font-family:monospace; font-size:12px; height:30px;">
+                <option value="">-- Select incoming firewall rule --</option>
+            </select>
+        </div>
+        <div style="display:flex; gap:12px; margin-top:0; margin-bottom:6px; align-items:center;">
+            <button class="btn" style="background:#15803d; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('in','yes')">Block</button>
+            <button class="btn" style="background:#b91c1c; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('in','no')">Unblock</button>
+        </div>
+        <h3 style="color: #93c5fd;">Windows Firewall Outgoing Rules:</h3>
+        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px;">
+            <button id="firewall-view-out-all-btn" class="btn" style="background:#334155; flex:1; margin:0;" onclick="setFirewallRuleViewMode('out','all')">All</button>
+            <button id="firewall-view-out-block-btn" class="btn" style="background:#15803d; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('out','block')">Block</button>
+            <button id="firewall-view-out-unblock-btn" class="btn" style="background:#b91c1c; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('out','unblock')">Unblock</button>
+        </div>
+        <div id="firewall-rules-out-summary" class="dns-status" style="color:#93c5fd; margin-bottom:4px;">Enabled: 0 | Disabled: 0 | Changed: 0</div>
+        <pre id="firewall-rules-out-box" class="pre rules-box" style="color:#bfdbfe;">Loading outgoing firewall rules...</pre>
+        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px; align-items:center;">
+            <select id="firewall-rule-out-selector" style="flex:1; background:#020617; color:#93c5fd; border:1px solid #334155; padding:6px; border-radius:6px; font-family:monospace; font-size:12px; height:30px;">
+                <option value="">-- Select outgoing firewall rule --</option>
+            </select>
+        </div>
+        <div style="display:flex; gap:12px; margin-top:0; margin-bottom:6px; align-items:center;">
+            <button class="btn" style="background:#15803d; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('out','yes')">Block</button>
+            <button class="btn" style="background:#b91c1c; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('out','no')">Unblock</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:8px;">
+            <button class="btn" style="background:#991b1b;" onclick="runLockdownFirewallRules()">Lockdown Firewall Rules</button>
+            <button class="btn" style="background:#1d4ed8;" onclick="runGameModeFirewallRules()">Game Mode Firewall Rules</button>
+            <button class="btn" style="background:#0f766e;" onclick="resetFirewall()">Reset Firewall Rules</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:0; margin-bottom:8px;">
+            <button class="btn" style="background:#166534;" onclick="runFirewallRulesPanel()">Refresh Firewall Rules</button>
+        </div>
+
         <h3>Active Windows IP Routing Table (route print):</h3>
         <pre id="route-box" class="pre route-box">Reading Windows kernel route table entries...</pre>
 
@@ -1157,6 +1590,7 @@
         <div class="controls-grid">
             <div class="col">
                 <h3>Monitor Diagnostics:</h3>
+                <button id="fullscreen-toggle-btn" class="btn" style="background:#334155;" onclick="toggleFullscreenMode()">Full Screen</button>
                 <button class="btn btn-scan" onclick="runArpMonitor()">Rescan ARP Table</button>
                 <button class="btn btn-scan" style="background: #7c3aed;" onclick="runRoutePrint()">Show Route Table</button>
                 <button class="btn btn-scan" style="background: #0f766e;" onclick="releaseDhcpLease()">Release DHCP</button>
@@ -1173,8 +1607,12 @@
                 <button class="btn" style="background:#f59e0b;" onclick="runFreshMode()">Fresh Mode</button>
                 <button class="btn" style="background:#0ea5a4;" onclick="runEnableBootMode()">Enable Boot Mode</button>
                 <button class="btn" style="background:#b45309;" onclick="runDisableMulticast()">Disable Multicast</button>
+                <button class="btn" style="background:#7f1d1d;" onclick="runDisableServices()">Disable Services</button>
+                <button class="btn" style="background:#15803d;" onclick="runEnableServices()">Enable Services</button>
+                <button class="btn" style="background:#2563eb;" onclick="runGameMode()">Game Mode</button>
                 <button class="btn" style="background:#7c3aed;" onclick="runResetPermissionDefault()">Reset Permission to Default</button>
                 <button class="btn" style="background:#be123c;" onclick="runTakeFullControlAdmin()">Take Full Control (Admin)</button>
+                <button class="btn" style="background:#0f766e;" onclick="repairCorruptedSystemFiles()">Repair Corrupted System Files</button>
             </div>
             <div class="col">
                 <h3>DNS Overdrive Engine:</h3>
