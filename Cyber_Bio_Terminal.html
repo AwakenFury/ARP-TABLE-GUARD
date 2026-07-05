@@ -126,7 +126,7 @@
             try {
                 var popup = window.open('', 'secguardAlert_' + new Date().getTime(), 'width=560,height=420,resizable=yes,scrollbars=yes');
                 if (!popup) {
-                    alert(title + "\n\n" + message + (details ? "\n\n" + details : ""));
+                    showInlineStyledAlert(title, message, details);
                     return;
                 }
 
@@ -158,8 +158,50 @@
                 popup.document.close();
                 popup.focus();
             } catch (e) {
-                alert(title + "\n\n" + message + (details ? "\n\n" + details : ""));
+                showInlineStyledAlert(title, message, details);
             }
+        }
+
+        function showInlineStyledAlert(title, message, details) {
+            try {
+                var existing = document.getElementById('secguard-inline-alert');
+                if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+                var safeTitle = (title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                var safeMessage = (message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                var safeDetails = (details || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+
+                var overlay = document.createElement('div');
+                overlay.id = 'secguard-inline-alert';
+                overlay.style.position = 'fixed';
+                overlay.style.left = '0';
+                overlay.style.top = '0';
+                overlay.style.width = '100%';
+                overlay.style.height = '100%';
+                overlay.style.background = 'rgba(2,6,23,0.82)';
+                overlay.style.zIndex = '99999';
+                overlay.style.display = 'flex';
+                overlay.style.alignItems = 'center';
+                overlay.style.justifyContent = 'center';
+                overlay.innerHTML = '' +
+                    '<div style="width:92%;max-width:560px;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px;box-shadow:0 10px 15px -3px rgba(0,0,0,.35);">' +
+                    '<div style="margin:0 0 8px 0;font-size:18px;font-weight:bold;color:#fca5a5;border-bottom:2px solid #334155;padding-bottom:6px;">' + safeTitle + '</div>' +
+                    '<div style="font-size:13px;color:#e2e8f0;margin-bottom:10px;">' + safeMessage + '</div>' +
+                    '<div style="background:#020617;border:1px solid #334155;border-radius:8px;padding:10px;font-family:monospace;font-size:12px;color:#38bdf8;max-height:220px;overflow:auto;white-space:normal;word-break:break-word;">' + safeDetails + '</div>' +
+                    '<div style="margin-top:10px;display:flex;justify-content:flex-end;">' +
+                    '<button id="secguard-inline-alert-close" style="border:none;background:#be123c;color:#fff;padding:7px 12px;border-radius:6px;font-weight:bold;cursor:pointer;">Close</button>' +
+                    '</div>' +
+                    '</div>';
+
+                document.body.appendChild(overlay);
+                var closeBtn = document.getElementById('secguard-inline-alert-close');
+                if (closeBtn) {
+                    closeBtn.onclick = function() {
+                        var modal = document.getElementById('secguard-inline-alert');
+                        if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
+                    };
+                }
+            } catch (ignoreErr) {}
         }
 
         function runArpMonitor() {
