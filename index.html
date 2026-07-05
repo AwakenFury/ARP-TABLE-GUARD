@@ -731,10 +731,95 @@
                     logBox.innerText += "\n\n[INFO] Network output pinned for 30 seconds.";
                     writeToCsvLog("NETSTAT_VIEW", "Connections", "Executed netstat -anob with -anb fallback.");
                 }
+                refreshNetworkConnectionsDropdown();
             } catch (err) {
                 logBox.innerText += "\n[ERROR] netstat failed: " + err.message;
             }
             setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 30000);
+        }
+
+        function refreshNetworkConnectionsDropdown() {
+            try {
+                var selector = document.getElementById('connection-selector');
+                if (!selector) return;
+
+                while (selector.options.length > 1) { selector.remove(1); }
+
+                var exec = shell.Exec("cmd.exe /c netstat -ano");
+                var output = exec.StdOut.ReadAll();
+                var lines = output.split(/\r?\n/);
+                var added = 0;
+                var maxEntries = 250;
+
+                for (var i = 0; i < lines.length; i++) {
+                    if (added >= maxEntries) break;
+                    var line = lines[i].replace(/^\s+|\s+$/g, '');
+                    if (line === "") continue;
+
+                    var normalized = line.replace(/\s+/g, ' ');
+                    if (/^active connections/i.test(normalized) || /^proto /i.test(normalized)) continue;
+
+                    var parts = normalized.split(' ');
+                    if (parts.length < 4) continue;
+
+                    var proto = parts[0].toUpperCase();
+                    if (proto !== 'TCP' && proto !== 'UDP') continue;
+
+                    var localAddr = parts[1] || "";
+                    var remoteAddr = parts[2] || "";
+                    var state = proto === 'TCP' ? (parts[3] || "") : "N/A";
+                    var pid = proto === 'TCP' ? (parts[4] || "") : (parts[3] || "");
+                    if (!/^\d+$/.test(pid)) continue;
+
+                    var opt = document.createElement('option');
+                    opt.value = pid;
+                    opt.text = proto + " | " + localAddr + " -> " + remoteAddr + " | " + state + " | PID " + pid;
+                    selector.add(opt);
+                    added++;
+                }
+
+                if (selector.options.length === 1) {
+                    var none = document.createElement('option');
+                    none.value = "";
+                    none.text = "-- No removable connections parsed --";
+                    selector.add(none);
+                }
+            } catch (e) {
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText += "\n[Connection List Error] " + e.message;
+                }
+            }
+        }
+
+        function removeSelectedConnection() {
+            var selector = document.getElementById('connection-selector');
+            if (!selector || selector.selectedIndex < 0) {
+                alert("Please choose a network connection first.");
+                return;
+            }
+
+            var pid = selector.options[selector.selectedIndex].value;
+            var label = selector.options[selector.selectedIndex].text;
+            if (pid === "") {
+                alert("Please choose a valid network connection entry.");
+                return;
+            }
+
+            if (!confirm("Terminate process PID " + pid + " for selected connection?")) return;
+
+            try {
+                shell.Run('cmd.exe /c taskkill /PID ' + pid + ' /F', 0, true);
+                appendDeletedEntry("CONNECTION_PROCESS_TERMINATED", "PID " + pid + " | " + label);
+                writeToCsvLog("CONNECTION_REMOVE", "PID " + pid, "Terminated process owning selected connection.");
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText = "[INFO] Terminated PID " + pid + " for selected connection.";
+                }
+                setTimeout(showNetworkConnections, 500);
+            } catch (err) {
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText += "\n[Connection Remove Error] " + err.message;
+                }
+            }
         }
 
         function cleanRoutes() {
@@ -1019,6 +1104,14 @@
 
         <h3>Live Event Monitor Log:</h3>
         <pre id="log-box" class="pre log-box" data-busy="false">Awaiting first scan cycle...</pre>
+
+        <h3 style="color: #c4b5fd; margin-top: 10px;">Select Network Connection to Remove:</h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+            <select id="connection-selector" style="flex: 1; background: #020617; color: #c4b5fd; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                <option value="">-- Run Show Network Connections to load items --</option>
+            </select>
+            <button class="btn" style="background: #7e22ce; width: 180px; height: 30px; margin:0;" onclick="removeSelectedConnection()">Remove Connection</button>
+        </div>
 
         <h3>Live System ARP Table Output (arp -a):</h3>
         <pre id="table-box" class="pre table-box">Loading ARP records...</pre>
