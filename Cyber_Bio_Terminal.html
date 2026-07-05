@@ -325,55 +325,84 @@
                 var output = exec.StdOut.ReadAll().replace(/\r/g, "").trim();
                 document.getElementById('route-box').innerText = output || "No route table data returned.";
 
-                var dropDown = document.getElementById('route-selector');
-                while (dropDown.options.length > 1) { dropDown.remove(1); }
+                var dropDownV4 = document.getElementById('route-selector-v4');
+                var dropDownV6 = document.getElementById('route-selector-v6');
+                while (dropDownV4.options.length > 1) { dropDownV4.remove(1); }
+                while (dropDownV6.options.length > 1) { dropDownV6.remove(1); }
 
                 var lines = output.split("\n");
                 var startParsing = false;
+                var seenDestinations = {};
 
                 for (var i = 0; i < lines.length; i++) {
                     var line = lines[i].replace(/^\s+|\s+$/g, '');
                     if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
-                    if (startParsing && (line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
-                        if (line.indexOf("===") !== -1 && dropDown.options.length > 1) startParsing = false;
+                    if (startParsing && (line === "" || line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
+                        startParsing = false;
                         continue;
                     }
 
                     if (startParsing && line !== "") {
-                        var parts = line.replace(/\s+/g, ' ').split(' ');
-                        for (var j = 0; j < parts.length; j++) {
-                            if (/^\d{1,3}(\.\d{1,3}){3}$/.test(parts[j])) {
-                                var ipTarget = parts[j];
+                        var normalized = line.replace(/\s+/g, ' ');
+                        if (/^if metric network destination gateway$/i.test(normalized) || /^network destination netmask gateway interface metric$/i.test(normalized) || /^-+$/.test(normalized)) {
+                            continue;
+                        }
+
+                        var parts = normalized.split(' ');
+                        var ipTarget = "";
+
+                        // IPv6 route print columns: If Metric NetworkDestination Gateway
+                        if (parts.length >= 4 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+                            ipTarget = parts[2];
+                        }
+                        // IPv4 route print columns: NetworkDestination Netmask Gateway Interface Metric
+                        else if (parts.length >= 5) {
+                            ipTarget = parts[0];
+                        }
+
+                        if (ipTarget !== "" && (/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(ipTarget) || /^[0-9a-f:]+(\/\d{1,3})?$/i.test(ipTarget))) {
+                            if (!seenDestinations[ipTarget]) {
+                                seenDestinations[ipTarget] = true;
                                 var opt = document.createElement('option');
                                 opt.value = ipTarget;
                                 opt.text = "Dest: " + ipTarget;
-                                dropDown.add(opt);
-                                break;
+                                if (ipTarget.indexOf(':') !== -1) {
+                                    dropDownV6.add(opt);
+                                } else {
+                                    dropDownV4.add(opt);
+                                }
                             }
                         }
                     }
                 }
 
-                if (dropDown.options.length === 1) {
-                    var opt = document.createElement('option');
-                    opt.value = "";
-                    opt.text = "-- No route destinations parsed --";
-                    dropDown.add(opt);
+                if (dropDownV4.options.length === 1) {
+                    var opt4 = document.createElement('option');
+                    opt4.value = "";
+                    opt4.text = "-- No IPv4 destinations parsed --";
+                    dropDownV4.add(opt4);
+                }
+                if (dropDownV6.options.length === 1) {
+                    var opt6 = document.createElement('option');
+                    opt6.value = "";
+                    opt6.text = "-- No IPv6 destinations parsed --";
+                    dropDownV6.add(opt6);
                 }
             } catch (e) {
                 document.getElementById('route-box').innerText = "Routing Error: " + e.message;
             }
         }
 
-        function removeSelectedRoute() {
-            var dropDown = document.getElementById('route-selector');
-            var selectedIp = dropDown.options[dropDown.selectedIndex].value;
-            if (selectedIp === "") { alert("Please select a valid network destination route."); return; }
+        function removeSelectedRoute(ipVersion) {
+            var dropDownId = ipVersion === 6 ? 'route-selector-v6' : 'route-selector-v4';
+            var dropDown = document.getElementById(dropDownId);
+            var selectedRoute = dropDown.options[dropDown.selectedIndex].value;
+            if (selectedRoute === "") { alert("Please select a valid network destination route."); return; }
 
-            if (confirm("Are you sure you want to run route delete targeting: " + selectedIp + "?")) {
+            if (confirm("Are you sure you want to run route delete targeting: " + selectedRoute + "?")) {
                 try {
-                    shell.Run('cmd.exe /c route delete ' + selectedIp, 0, true);
-                    appendDeletedEntry("ROUTE_DELETED", selectedIp);
+                    shell.Run('cmd.exe /c route delete "' + selectedRoute + '"', 0, true);
+                    appendDeletedEntry("ROUTE_DELETED_V" + ipVersion, selectedRoute);
                 } catch (err) {
                     if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[Route Delete Error] " + err.message;
                 }
@@ -1028,12 +1057,18 @@
         <h3>Active Windows IP Routing Table (route print):</h3>
         <pre id="route-box" class="pre route-box">Reading Windows kernel route table entries...</pre>
 
-        <h3 style="color: #a7f3d0; margin-top: 10px;">Select a Target Route Destination to Delete:</h3>
-        <div style="display: flex; gap: 8px; margin-bottom: 5px;">
-            <select id="route-selector" style="flex: 1; background: #020617; color: #34d399; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
-                <option value="">-- Choose an active IP route destination --</option>
+        <h3 style="color: #a7f3d0; margin-top: 10px;">Select Route Destinations to Delete:</h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 5px; align-items: center;">
+            <select id="route-selector-v4" style="flex: 1; background: #020617; color: #34d399; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                <option value="">-- Choose an active IPv4 route destination --</option>
             </select>
-            <button class="btn" style="background: #be123c; width: 150px; height: 30px; margin:0;" onclick="removeSelectedRoute()">Delete Route</button>
+            <button class="btn" style="background: #be123c; width: 150px; height: 30px; margin:0;" onclick="removeSelectedRoute(4)">Delete IPv4</button>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 5px; align-items: center;">
+            <select id="route-selector-v6" style="flex: 1; background: #020617; color: #7dd3fc; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                <option value="">-- Choose an active IPv6 route destination --</option>
+            </select>
+            <button class="btn" style="background: #9f1239; width: 150px; height: 30px; margin:0;" onclick="removeSelectedRoute(6)">Delete IPv6</button>
         </div>
 
         <div class="controls-grid">
