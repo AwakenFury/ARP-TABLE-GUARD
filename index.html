@@ -22,7 +22,7 @@
         .safe { background: #065f46; color: #34d399; }
         .alert { background: #991b1b; color: #fca5a5; }
         pre { background: #020617; padding: 8px; border-radius: 8px; font-family: monospace; font-size: 11px; color: #38bdf8; overflow-y: auto; overflow-x: hidden; white-space: pre-wrap; margin: 0; border: 1px solid #1e293b; }
-        .log-box { height: 55px; color: #e2e8f0; }
+        .log-box { height: 180px; color: #e2e8f0; }
         .table-box { height: 110px; color: #cbd5e1; border: 1px solid #334155; }
         .route-box { height: 110px; color: #a7f3d0; border: 1px solid #334155; }
         .highlight { color: #34d399; font-weight: bold; }
@@ -44,7 +44,6 @@
         var fso = new ActiveXObject("Scripting.FileSystemObject");
         var dnsTimerId = null;
         var deletedRefreshTimerId = null;
-        var ramSweepTimerId = null;
         var TXT_GROUP_PATH = "C:\\NetworkMonitor\\blocked_ips_tracker.txt";
         var DELETED_TRACKER_PATH = "C:\\NetworkMonitor\\deleted_items_tracker.txt";
         var DELETED_TRACKER_FALLBACK_PATHS = ["C:\\Users\\Administrator\\Documents\\deleted_items_tracker.txt", "C:\\Temp\\deleted_items_tracker.txt"];
@@ -104,7 +103,6 @@
             try {
                 if (deletedRefreshTimerId !== null) clearInterval(deletedRefreshTimerId);
                 if (dnsTimerId !== null) clearInterval(dnsTimerId);
-                if (ramSweepTimerId !== null) clearInterval(ramSweepTimerId);
             } catch (e) {}
         };
 
@@ -246,6 +244,8 @@
                 document.getElementById('table-box').innerHTML = htmlTableDump;
                 var statusBox = document.getElementById('status-box');
                 var newArpEntries = [];
+                var logBox = document.getElementById('log-box');
+                var isLogBusy = logBox && logBox.getAttribute("data-busy") === "true";
 
                 if (previousArpEntries.length > 0) {
                     for (var k = 0; k < currentArpEntries.length; k++) {
@@ -262,7 +262,9 @@
                     statusBox.className = "status alert";
                     var timestamp = new Date().toLocaleTimeString();
                     var detailText = "[" + timestamp + "] New ARP entry detected: " + newArpEntries.join(", ");
-                    document.getElementById('log-box').innerText = detailText;
+                    if (!isLogBusy) {
+                        logBox.innerText = detailText;
+                    }
                     writeToCsvLog("ARP_NEW_ENTRY", newArpEntries.join(", "), "Detected a new ARP entry during scan.");
                     showStyledAlert("New ARP Entry Detected", "SecGuard detected new neighbor entries.", newArpEntries.join("\n"));
                     setTimeout(runArpMonitor, 2000);
@@ -272,21 +274,26 @@
                 if (check1 && check2 && check3 && validLinesCount === 3) {
                     statusBox.innerText = "SYSTEM SECURE";
                     statusBox.className = "status safe";
-                    if (document.getElementById('log-box').getAttribute("data-busy") !== "true") {
+                    if (!isLogBusy) {
                         var timestamp = new Date().toLocaleTimeString();
-                        document.getElementById('log-box').innerText = "[" + timestamp + "] Baseline matches. Active ARP records tracked: " + validLinesCount;
+                        logBox.innerText = "[" + timestamp + "] Baseline matches. Active ARP records tracked: " + validLinesCount;
                     }
                     setTimeout(runArpMonitor, 2000);
                 } else {
                     statusBox.innerText = "ALERT: TAMPERING DETECTED!";
                     statusBox.className = "status alert";
-                    var timestamp = new Date().toLocaleTimeString();
-                    document.getElementById('log-box').innerText = "[" + timestamp + "] Network configuration mismatch! Items found: " + validLinesCount + "\nFlushing network interfaces...";
+                    if (!isLogBusy) {
+                        var timestamp = new Date().toLocaleTimeString();
+                        logBox.innerText = "[" + timestamp + "] Network configuration mismatch! Items found: " + validLinesCount + "\nFlushing network interfaces...";
+                    }
                     triggerSecurityCleanup();
                     setTimeout(runArpMonitor, 2000);
                 }
             } catch (e) {
-                document.getElementById('log-box').innerText = "System Error: " + e.message;
+                var lbox = document.getElementById('log-box');
+                if (!lbox || lbox.getAttribute("data-busy") !== "true") {
+                    if (lbox) lbox.innerText = "System Error: " + e.message;
+                }
                 setTimeout(runArpMonitor, 3000);
             }
         }
@@ -705,16 +712,29 @@
             var logBox = document.getElementById('log-box');
             var timestamp = new Date().toLocaleTimeString();
             logBox.setAttribute("data-busy", "true");
-            logBox.innerText = "[" + timestamp + "] Running netstat -anob...\n";
+            logBox.innerText = "[" + timestamp + "] Running netstat connection scan...\n";
             try {
-                var exec = shell.Exec("cmd.exe /c netstat -anob");
+                var exec = shell.Exec("cmd.exe /c netstat -anob 2>&1");
                 var output = exec.StdOut.ReadAll();
-                logBox.innerText += output || "No network connection data returned.";
-                writeToCsvLog("NETSTAT_VIEW", "Connections", "Executed netstat -anob.");
+
+                // Fallback for environments where -o data is restricted or omitted.
+                if (!output || output.replace(/\s+/g, '') === '') {
+                    var fallbackExec = shell.Exec("cmd.exe /c netstat -anb 2>&1");
+                    output = fallbackExec.StdOut.ReadAll();
+                }
+
+                if (!output || output.replace(/\s+/g, '') === '') {
+                    logBox.innerText += "No network connection data returned. Try running this HTA as Administrator.";
+                    writeToCsvLog("NETSTAT_VIEW", "Connections", "No data returned from netstat -anob/-anb.");
+                } else {
+                    logBox.innerText += output;
+                    logBox.innerText += "\n\n[INFO] Network output pinned for 30 seconds.";
+                    writeToCsvLog("NETSTAT_VIEW", "Connections", "Executed netstat -anob with -anb fallback.");
+                }
             } catch (err) {
                 logBox.innerText += "\n[ERROR] netstat failed: " + err.message;
             }
-            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 6000);
+            setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 30000);
         }
 
         function cleanRoutes() {
@@ -781,43 +801,13 @@
                     logBox.innerText += "[ERROR] RAM cleanup script not found: " + batchPath;
                     return;
                 }
-                shell.Run('cmd.exe /c start "RAM Clean" "' + batchPath + '"', 1, false);
-                logBox.innerText += "RAM cleanup process launched.";
-                writeToCsvLog('RAM_CLEAN', batchPath, 'Started RAM cleanup via UI');
+                shell.Run('cmd.exe /c "' + batchPath + '" --once', 0, false);
+                logBox.innerText += "RAM cleanup one-shot task launched.";
+                writeToCsvLog('RAM_CLEAN', batchPath, 'Started one-shot RAM cleanup via UI');
             } catch (err) {
                 logBox.innerText += "\n[ERROR] Optimization interrupted: " + err.message;
             }
             setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 6000);
-        }
-
-        function startRamSweepLoop() {
-            if (ramSweepTimerId === null) {
-                try {
-                    var batchPath = 'C:\\NetworkMonitor\\ram_clean_loop.bat';
-                    if (!fso.FileExists(batchPath)) {
-                        document.getElementById('log-box').innerText = "[ERROR] RAM cleanup script not found: " + batchPath;
-                        return;
-                    }
-                    document.getElementById('ram-state').innerText = "🔄 RAM SWEEP: ACTIVE";
-                    document.getElementById('ram-state').className = "dns-status dns-active";
-                    shell.Run('cmd.exe /c start "RAM Sweep" "' + batchPath + '"', 1, false);
-                    ramSweepTimerId = setInterval(function() {
-                        shell.Run('cmd.exe /c start "RAM Sweep" "' + batchPath + '"', 1, false);
-                    }, 5000);
-                    writeToCsvLog('RAM_SWEEP_LOOP', batchPath, 'Started RAM sweep loop via UI');
-                } catch (err) {
-                    document.getElementById('log-box').innerText = "[ERROR] " + err.message;
-                }
-            }
-        }
-
-        function stopRamSweepLoop() {
-            if (ramSweepTimerId !== null) {
-                clearInterval(ramSweepTimerId);
-                ramSweepTimerId = null;
-                document.getElementById('ram-state').innerText = "⏹️ RAM SWEEP: STOPPED";
-                document.getElementById('ram-state').className = "dns-status";
-            }
         }
 
         function networkReset() {
@@ -1082,9 +1072,6 @@
                 <button class="btn btn-scan" style="background: #312e81;" onclick="showNetworkConnections()">Show Network Connections</button>
                 <button class="btn" style="background: #dc2626;" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
                 <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
-                <button class="btn btn-start" style="background:#0f766e;" onclick="startRamSweepLoop()">Start RAM Sweep</button>
-                <button class="btn btn-stop" style="background:#475569;" onclick="stopRamSweepLoop()">Stop RAM Sweep</button>
-                <div id="ram-state" class="dns-status">⏹️ RAM SWEEP: STOPPED</div>
                 <button class="btn" style="background:#7f1d1d;" onclick="networkReset()">Network Reset</button>
                 <button class="btn" style="background:#0f766e;" onclick="resetFirewall()">Reset Firewall</button>
                 <button class="btn" style="background:#7c2d12;" onclick="resetNetworkSecurityPolicy()">Reset Network Security</button>
