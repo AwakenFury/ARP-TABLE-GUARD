@@ -12,72 +12,64 @@
 </p>
 
 
+
 # ARP Table Guard
 
-**Understanding the Network Before Defending It**
+## Understanding Networks. Building Situational Awareness.
 
-ARP Table Guard is an experimental Windows network security toolkit designed to help users understand how their local network behaves before attempting to secure it. Instead of operating as a black-box security application, the project focuses on visibility, education, and defensive automation.
+ARP Table Guard is an experimental cybersecurity research platform focused on network awareness, defensive automation, and cyber-physical system monitoring.
 
-The project provides a graphical interface for monitoring ARP tables, routing information, firewall activity, DHCP operations, and other local networking components while giving users the ability to safely inspect and manage their own systems.
+The project began as a lightweight ARP table monitoring utility for Windows but has evolved into a modular framework for observing and understanding how local networks behave in real time. Rather than treating security as a collection of isolated tools, ARP Table Guard emphasizes visibility, transparency, and education—helping users understand what their systems are doing before deciding how to respond.
 
-## Features
+Current capabilities include:
 
-* Live ARP table monitoring
-* Route table visualization
-* Firewall rule management
-* DNS cache management
-* DHCP release and renewal controls
+* Real-time ARP table monitoring
+* Route table inspection
+* Windows Firewall management
+* Neighbor cache analysis
 * Network diagnostics
-* Event logging and CSV export
-* Local security tracking
-* Interactive Windows HTA dashboard
-* Modular batch automation support
+* Event logging and audit trails
+* Security status monitoring
+* Interactive administrative dashboard
+* CSV event logging
+* Modular batch-based maintenance and recovery tools
 
-## Project Goals
+The long-term vision extends well beyond Windows networking.
 
-The long-term goal is to build an open security platform that teaches how computer networks actually function.
+ARP Table Guard is one of the foundational projects within the **Cyber-Bio** initiative, where software, embedded systems, environmental sensing, and artificial intelligence work together to create adaptive cyber-physical systems capable of understanding their surroundings.
 
-Rather than replacing human decision making, the project is designed to make network behavior understandable so that users, developers, and future AI systems can reason about infrastructure using transparent logic.
+Future development will gradually expand toward:
 
-ARP Table Guard serves as one of the foundational components of the larger **Cyber-Bio** ecosystem.
+* Embedded network monitoring using ESP32 and other microcontrollers
+* Edge AI analysis for anomaly detection
+* Offline-first operation for resilient environments
+* Integration with XR visualization systems
+* LoRa-based distributed sensor networks
+* Autonomous home and laboratory monitoring
+* Experimental operating system research
+* Custom firmware development
+* Future deployment on ARM single-board computers such as the Radxa X5
+* Long-term custom hardware, motherboard, and processor research
 
-## Roadmap
+This repository is intentionally modular. Every component is designed to become part of a larger ecosystem where networking, embedded devices, AI, robotics, and cyber-physical sensing share a common architecture.
 
-Future development includes:
+## Philosophy
 
-* AI-assisted network analysis
-* Distributed sensor nodes
-* LoRa communication
-* XR visualization
-* Offline mapping integration
-* Spatial awareness interfaces
-* Custom hardware development
-* Radxa X5 experimentation
-* Embedded Linux operating system research
-* Future custom motherboard and SBC architecture
+Security begins with understanding.
 
-## Cyber-Bio Ecosystem
+Before automation, there must be observation.
 
-This repository is one building block of the Cyber-Bio initiative.
+Before defense, there must be visibility.
 
-Cyber-Bio explores the intersection of:
+Every tool in this repository is intended to help explain how a system works—not just automate administrative tasks. By making network activity more transparent, ARP Table Guard serves as a foundation for learning, experimentation, and future research into intelligent cyber-defense systems.
 
-* Cybersecurity
-* Embedded systems
-* Robotics
-* AI-assisted computing
-* Human-computer interaction
-* Sensor fusion
-* Spatial intelligence
-* Home automation
-* Experimental operating systems
+---
 
-Every project contributes toward a larger modular ecosystem where hardware, software, AI, and sensor networks work together while remaining understandable, transparent, and user-controlled.
+**Status:** Active Research Project
 
-## Status
+**Project Family:** Cyber-Bio • Project Aether
 
-> Experimental Research Project
+**License:** Open Source (License to be determined)
 
-This repository is under active development. Features, interfaces, and architecture may change frequently as new ideas are explored and tested.
+*"Building situational awareness for the next generation of cyber-physical systems."*
 
-Contributions, feedback, and discussions are always welcome.
