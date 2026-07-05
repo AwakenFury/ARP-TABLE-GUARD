@@ -89,6 +89,7 @@
         .title-green { color: #a7f3d0 !important; margin-top: 10px; }
         .tracker-box { color: #fde047 !important; height: 90px; }
         .rules-out-box { color: #bfdbfe !important; }
+        .route-raw-box { height: 220px; color: #cbd5e1; border: 1px solid #334155; margin-top: 6px; }
 
         .dns-status { font-size: 11px; font-weight: bold; text-align: center; color: #64748b; margin-top: 1px; }
         .dns-active { color: #38bdf8; animation: pulse 1.5s infinite; }
@@ -111,6 +112,7 @@
         var isDarkTheme = false;
         var normalWindowBounds = { left: 0, top: 0, width: 640, height: 1080 };
         var dnsTimerId = null;
+        var arpNeighborLoopId = null;
         var deletedRefreshTimerId = null;
         var TXT_GROUP_PATH = "C:\\NetworkMonitor\\blocked_ips_tracker.txt";
         var DELETED_TRACKER_PATH = "C:\\NetworkMonitor\\deleted_items_tracker.txt";
@@ -121,6 +123,8 @@
         var firewallRulesInitialized = false;
         var firewallRuleViewModeIn = "all";
         var firewallRuleViewModeOut = "all";
+        var hiddenRouteDestinations = {};
+        var hiddenNeighborEntries = {};
         var CUSTOM_BLOCK_GROUP = "SecGuard_Blocked_IPs";
 
         var target1 = "72.69.1.1 cc-e1-7f-90-4a-cb dynamic";
@@ -184,6 +188,7 @@
             try {
                 if (deletedRefreshTimerId !== null) clearInterval(deletedRefreshTimerId);
                 if (dnsTimerId !== null) clearInterval(dnsTimerId);
+                if (arpNeighborLoopId !== null) clearInterval(arpNeighborLoopId);
             } catch (e) {}
         };
 
@@ -338,6 +343,7 @@
                 var validLinesCount = 0;
                 var htmlTableDump = "";
                 var currentArpEntries = [];
+                var selectorSeen = {};
 
                 var arpSelect = document.getElementById('arp-selector');
                 while (arpSelect.options.length > 1) { arpSelect.remove(1); }
@@ -357,15 +363,69 @@
                             var ip = parts[0];
                             var mac = parts[1];
                             currentArpEntries.push(ip + "|" + mac);
-                            var opt = document.createElement('option');
-                            opt.value = ip;
-                            opt.text = "IP: " + ip + " [" + mac + "]";
-                            arpSelect.add(opt);
+                            if (hiddenNeighborEntries[ip]) {
+                                continue;
+                            }
+                            if (!selectorSeen[ip]) {
+                                selectorSeen[ip] = true;
+                                var opt = document.createElement('option');
+                                opt.value = ip;
+                                opt.text = "IP: " + ip + " [" + mac + "]";
+                                arpSelect.add(opt);
+                            }
                         }
                     }
                     if (originalLine.trim() !== "") {
                         htmlTableDump += originalLine + "\n";
                     }
+                }
+
+                // Include IPv6 neighbor devices so they are visible and selectable too.
+                try {
+                    var exec6 = shell.Exec("cmd.exe /c netsh interface ipv6 show neighbors");
+                    var output6 = exec6.StdOut.ReadAll().replace(/\r/g, "");
+                    if (output6 && output6.replace(/\s+/g, '') !== '') {
+                        htmlTableDump += "\n=== IPv6 Neighbors (netsh interface ipv6 show neighbors) ===\n";
+                        htmlTableDump += output6 + "\n";
+
+                        var lines6 = output6.split("\n");
+                        for (var n = 0; n < lines6.length; n++) {
+                            var raw6 = lines6[n].replace(/^\s+|\s+$/g, '');
+                            if (raw6 === "") continue;
+
+                            var normalized6 = raw6.replace(/\s+/g, ' ');
+                            if (/^interface\s+\d+:/i.test(normalized6) || /^internet\s+address/i.test(normalized6) || /^-+$/.test(normalized6)) {
+                                continue;
+                            }
+
+                            // Parse columns from netsh table output:
+                            // Internet Address  Physical Address  Type
+                            var cols6 = raw6.split(/\s{2,}/);
+                            var ipv6 = (cols6[0] || "").trim();
+                            var mac6 = (cols6.length > 1 ? cols6[1] : "").trim();
+                            var type6 = (cols6.length > 2 ? cols6[2] : "").trim();
+
+                            if (!/^[0-9a-f:]+(?:%\d+)?$/i.test(ipv6) || ipv6.indexOf(':') === -1) {
+                                continue;
+                            }
+
+                            currentArpEntries.push(ipv6 + "|" + (mac6 || "IPv6"));
+
+                            if (hiddenNeighborEntries[ipv6]) {
+                                continue;
+                            }
+
+                            if (!selectorSeen[ipv6]) {
+                                selectorSeen[ipv6] = true;
+                                var opt6 = document.createElement('option');
+                                opt6.value = ipv6;
+                                opt6.text = "IPv6: " + ipv6 + (mac6 !== "" ? (" [" + mac6 + "]") : "") + (type6 !== "" ? (" {" + type6 + "}") : "");
+                                arpSelect.add(opt6);
+                            }
+                        }
+                    }
+                } catch (ipv6Err) {
+                    htmlTableDump += "\n[IPv6 Neighbor Read Warning] " + ipv6Err.message + "\n";
                 }
 
                 document.getElementById('table-box').innerHTML = htmlTableDump;
@@ -434,8 +494,16 @@
             if (confirm("Permanently drop neighbor connection metadata for: " + selectedIp + "?")) {
                 try {
                     if (logBox) { logBox.setAttribute("data-busy", "true"); logBox.innerText = "[" + timestamp + "] Deleting ARP entry: " + selectedIp; }
-                    shell.Run('cmd.exe /c netsh interface ipv4 delete neighbors ip=' + selectedIp, 0, true);
-                    shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors ip=' + selectedIp, 0, true);
+                    if (selectedIp.indexOf(':') !== -1) {
+                        // Try multiple IPv6 forms for compatibility across Windows builds.
+                        shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors address=' + selectedIp, 0, true);
+                        shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors ip=' + selectedIp, 0, true);
+                        shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors "' + selectedIp + '"', 0, true);
+                    } else {
+                        shell.Run('cmd.exe /c netsh interface ipv4 delete neighbors address=' + selectedIp, 0, true);
+                        shell.Run('cmd.exe /c netsh interface ipv4 delete neighbors ip=' + selectedIp, 0, true);
+                    }
+                    hiddenNeighborEntries[selectedIp] = true;
                     writeToCsvLog("ARP_DELETE", selectedIp, "Deleted ARP neighbor entry via UI");
                 } catch (err) {
                     if (logBox) logBox.innerText += "\n[ARP Delete Error] " + err.message;
@@ -453,11 +521,19 @@
             }
         }
 
+        function unhideAllNeighbors() {
+            hiddenNeighborEntries = {};
+            runArpMonitor();
+            var logBox = document.getElementById('log-box');
+            if (logBox) logBox.innerText = '[INFO] Restored all hidden neighbor entries to dropdown list.';
+        }
+
         function runRoutePrint() {
             try {
                 var exec = shell.Exec("route print");
                 var output = exec.StdOut.ReadAll().replace(/\r/g, "").trim();
-                document.getElementById('route-box').innerText = output || "No route table data returned.";
+                var routeBox = document.getElementById('route-box');
+                if (routeBox) routeBox.innerText = output || "No route table data returned.";
 
                 var dropDownV4 = document.getElementById('route-selector-v4');
                 var dropDownV6 = document.getElementById('route-selector-v6');
@@ -470,7 +546,11 @@
 
                 for (var i = 0; i < lines.length; i++) {
                     var line = lines[i].replace(/^\s+|\s+$/g, '');
-                    if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
+                    if (line.indexOf("Active Routes:") !== -1) {
+                        startParsing = true;
+                        line = line.replace(/^.*Active Routes:\s*/i, '').replace(/^\s+|\s+$/g, '');
+                        if (line === "") continue;
+                    }
                     if (startParsing && (line === "" || line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
                         startParsing = false;
                         continue;
@@ -482,25 +562,46 @@
                             continue;
                         }
 
+                        // Some route outputs collapse the header + values on one line.
+                        if (/^if metric network destination gateway\s+/i.test(normalized)) {
+                            normalized = normalized.replace(/^if metric network destination gateway\s+/i, '');
+                        }
+
                         var parts = normalized.split(' ');
                         var ipTarget = "";
+                        var routeLabel = "";
 
                         // IPv6 route print columns: If Metric NetworkDestination Gateway
                         if (parts.length >= 4 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
                             ipTarget = parts[2];
+                            routeLabel = "Dest: " + ipTarget + " | If: " + parts[0] + " | Metric: " + parts[1] + " | Gw: " + parts.slice(3).join(' ');
                         }
                         // IPv4 route print columns: NetworkDestination Netmask Gateway Interface Metric
                         else if (parts.length >= 5) {
                             ipTarget = parts[0];
+                            routeLabel = "Dest: " + ipTarget + " | Mask: " + parts[1] + " | Gw: " + parts[2] + " | If: " + parts[3] + " | Metric: " + parts[4];
+                        }
+
+                        // Fallback: extract IPv6 destination directly when column shapes vary.
+                        if (ipTarget === "") {
+                            var v6DestMatch = normalized.match(/([0-9a-f:]+\/[0-9]{1,3})/i);
+                            if (v6DestMatch) {
+                                ipTarget = v6DestMatch[1];
+                                routeLabel = "Dest: " + ipTarget + " | Raw: " + normalized;
+                            }
                         }
 
                         if (ipTarget !== "" && (/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(ipTarget) || /^[0-9a-f:]+(\/\d{1,3})?$/i.test(ipTarget))) {
+                            if (hiddenRouteDestinations[ipTarget]) {
+                                continue;
+                            }
                             if (!seenDestinations[ipTarget]) {
                                 seenDestinations[ipTarget] = true;
+                                var isV6 = ipTarget.indexOf(':') !== -1;
                                 var opt = document.createElement('option');
                                 opt.value = ipTarget;
-                                opt.text = "Dest: " + ipTarget;
-                                if (ipTarget.indexOf(':') !== -1) {
+                                opt.text = routeLabel || ("Dest: " + ipTarget);
+                                if (isV6) {
                                     dropDownV6.add(opt);
                                 } else {
                                     dropDownV4.add(opt);
@@ -522,6 +623,7 @@
                     opt6.text = "-- No IPv6 destinations parsed --";
                     dropDownV6.add(opt6);
                 }
+
             } catch (e) {
                 document.getElementById('route-box').innerText = "Routing Error: " + e.message;
             }
@@ -534,14 +636,35 @@
             if (selectedRoute === "") { alert("Please select a valid network destination route."); return; }
 
             if (confirm("Are you sure you want to run route delete targeting: " + selectedRoute + "?")) {
+                var commandSucceeded = true;
                 try {
                     shell.Run('cmd.exe /c route delete "' + selectedRoute + '"', 0, true);
                     appendDeletedEntry("ROUTE_DELETED_V" + ipVersion, selectedRoute);
                 } catch (err) {
+                    commandSucceeded = false;
                     if (document.getElementById('log-box')) document.getElementById('log-box').innerText += "\n[Route Delete Error] " + err.message;
+                }
+
+                // Keep the UI interactive: hide the selected destination from dropdowns even if Windows keeps it.
+                hiddenRouteDestinations[selectedRoute] = true;
+
+                var logBox = document.getElementById('log-box');
+                if (logBox) {
+                    if (commandSucceeded) {
+                        logBox.innerText = "[INFO] Route delete requested and hidden from list: " + selectedRoute;
+                    } else {
+                        logBox.innerText += "\n[INFO] Route hidden from list anyway: " + selectedRoute;
+                    }
                 }
                 runRoutePrint();
             }
+        }
+
+        function unhideAllRoutes() {
+            hiddenRouteDestinations = {};
+            runRoutePrint();
+            var logBox = document.getElementById('log-box');
+            if (logBox) logBox.innerText = "[INFO] Restored all hidden routes to dropdown lists.";
         }
 
         function readDeletedTrackerLines() {
@@ -1020,6 +1143,59 @@
             shell.Run('netsh interface ipv6 delete neighbors', 0, true);
         }
 
+        function clearArpNeighborsOnce() {
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            try {
+                // User-requested one-shot commands.
+                shell.Run('netsh interface ipv4  delete neighbors', 0, true);
+                shell.Run('netsh interface ipv6  delete neighbors', 0, true);
+                if (logBox) {
+                    logBox.innerText = '[' + timestamp + '] Cleared ARP neighbors (IPv4 + IPv6).';
+                }
+                writeToCsvLog('ARP_NEIGHBOR_CLEAR', 'IPv4+IPv6', 'Executed one-shot ARP neighbor clear.');
+                runArpMonitor();
+            } catch (err) {
+                if (logBox) {
+                    logBox.innerText += '\n[ARP Clear Error] ' + err.message;
+                }
+            }
+        }
+
+        function startArpNeighborForceLoop() {
+            if (arpNeighborLoopId !== null) return;
+            var loopStatus = document.getElementById('arp-neighbor-loop-state');
+            if (loopStatus) {
+                loopStatus.innerText = '🔄 ARP FORCE LOOP: ACTIVE';
+                loopStatus.className = 'dns-status dns-active';
+            }
+
+            arpNeighborLoopId = setInterval(function() {
+                try {
+                    // User-requested force loop commands.
+                    shell.Run('netsh interface ipv4  delete neighbors', 0, true);
+                    shell.Run('netsh interface ipv6  delete neighbors', 0, true);
+                } catch (err) {
+                    var logBox = document.getElementById('log-box');
+                    if (logBox) logBox.innerText += '\n[ARP Force Loop Error] ' + err.message;
+                }
+            }, 1200);
+
+            writeToCsvLog('ARP_NEIGHBOR_FORCE_LOOP', 'IPv4+IPv6', 'Started ARP neighbor force-clear loop.');
+        }
+
+        function stopArpNeighborForceLoop() {
+            if (arpNeighborLoopId === null) return;
+            clearInterval(arpNeighborLoopId);
+            arpNeighborLoopId = null;
+            var loopStatus = document.getElementById('arp-neighbor-loop-state');
+            if (loopStatus) {
+                loopStatus.innerText = '⏹️ ARP FORCE LOOP: STOPPED';
+                loopStatus.className = 'dns-status';
+            }
+            writeToCsvLog('ARP_NEIGHBOR_FORCE_LOOP', 'IPv4+IPv6', 'Stopped ARP neighbor force-clear loop.');
+        }
+
         function releaseDhcpLease() {
             var logBox = document.getElementById('log-box');
             var timestamp = new Date().toLocaleTimeString();
@@ -1179,7 +1355,11 @@
 
                 for (var i = 0; i < lines.length; i++) {
                     var line = lines[i].replace(/^\s+|\s+$/g, '');
-                    if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
+                    if (line.indexOf("Active Routes:") !== -1) {
+                        startParsing = true;
+                        line = line.replace(/^.*Active Routes:\s*/i, '').replace(/^\s+|\s+$/g, '');
+                        if (line === "") continue;
+                    }
                     if (startParsing && (line === "" || line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
                         startParsing = false;
                         continue;
@@ -1191,6 +1371,11 @@
                         continue;
                     }
 
+                    // Some route outputs collapse the header + values on one line.
+                    if (/^if metric network destination gateway\s+/i.test(normalized)) {
+                        normalized = normalized.replace(/^if metric network destination gateway\s+/i, '');
+                    }
+
                     var parts = normalized.split(' ');
                     var destination = "";
 
@@ -1198,6 +1383,14 @@
                         destination = parts[2];
                     } else if (parts.length >= 5) {
                         destination = parts[0];
+                    }
+
+                    // Fallback: extract IPv6 destination directly when column shapes vary.
+                    if (destination === "") {
+                        var v6DestMatch = normalized.match(/([0-9a-f:]+\/[0-9]{1,3})/i);
+                        if (v6DestMatch) {
+                            destination = v6DestMatch[1];
+                        }
                     }
 
                     if (destination === "0.0.0.0") continue;
@@ -1600,11 +1793,14 @@
                         <button class="btn tone-crimson w-150" style="height: 30px; margin:0;" onclick="removeSelectedArp()">Delete ARP</button>
                         <button class="btn tone-blue w-140" style="height: 30px; margin:0;" onclick="searchSelectedArp()">Search Selected ARP</button>
                     </div>
+                    <div class="action-row" style="margin-top:2px;">
+                        <button class="btn tone-slate" onclick="unhideAllNeighbors()">Unhide All Devices</button>
+                    </div>
                 </div>
 
                 <div class="panel">
                     <div class="panel-title">Active Windows IP Routing Table (route print)</div>
-                    <pre id="route-box" class="pre route-box">Reading Windows kernel route table entries...</pre>
+                    <pre id="route-box" class="pre route-raw-box">Loading full route print...</pre>
                     <h3 class="title-green">Select Route Destinations to Delete:</h3>
                     <div class="action-row">
                         <select id="route-selector-v4" style="flex: 1; background: #020617; color: #34d399; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
@@ -1617,6 +1813,9 @@
                             <option value="">-- Choose an active IPv6 route destination --</option>
                         </select>
                         <button class="btn tone-crimson w-150" style="height: 30px; margin:0;" onclick="removeSelectedRoute(6)">Delete IPv6</button>
+                    </div>
+                    <div class="action-row" style="margin-top:2px;">
+                        <button class="btn tone-slate" onclick="unhideAllRoutes()">Unhide All Routes</button>
                     </div>
                 </div>
             </div>
@@ -1705,7 +1904,12 @@
                         <button class="btn btn-scan tone-blue" onclick="renewDhcpLease()">Renew DHCP</button>
                         <button class="btn btn-scan tone-brown" onclick="cleanRoutes()">Clear Route</button>
                         <button class="btn btn-scan tone-indigo" onclick="showNetworkConnections()">Show Network Connections</button>
-                        <button class="btn tone-danger" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
+                        <button class="btn tone-danger" onclick="clearArpNeighborsOnce()">Clear ARP Neighbors</button>
+                        <div class="action-row" style="margin-top:0; margin-bottom:4px;">
+                            <button class="btn tone-blue" style="flex:1;" onclick="startArpNeighborForceLoop()">Start ARP Force Loop</button>
+                            <button class="btn tone-red" style="flex:1;" onclick="stopArpNeighborForceLoop()">Stop ARP Force Loop</button>
+                        </div>
+                        <div id="arp-neighbor-loop-state" class="dns-status">⏹️ ARP FORCE LOOP: STOPPED</div>
                         <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
                         <button class="btn tone-maroon" onclick="networkReset()">Network Reset</button>
                         <button class="btn tone-teal" onclick="resetFirewall()">Reset Firewall</button>
