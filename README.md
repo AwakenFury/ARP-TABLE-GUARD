@@ -12,204 +12,72 @@
 </p>
 
 
-Cyber-Bio
-Engineering Open Cyber-Physical Intelligence
+# ARP Table Guard
 
-"The future won't be built by one technology—it will emerge from the convergence of computing, sensing, AI, networking, robotics, and human perception."
+**Understanding the Network Before Defending It**
 
-Overview
+ARP Table Guard is an experimental Windows network security toolkit designed to help users understand how their local network behaves before attempting to secure it. Instead of operating as a black-box security application, the project focuses on visibility, education, and defensive automation.
 
-Cyber-Bio is an open-source experimental research initiative dedicated to exploring the convergence of embedded systems, artificial intelligence, cybersecurity, spatial computing, biosensing, extended reality (XR), and distributed edge computing.
+The project provides a graphical interface for monitoring ARP tables, routing information, firewall activity, DHCP operations, and other local networking components while giving users the ability to safely inspect and manage their own systems.
 
-Rather than focusing on a single device or application, Cyber-Bio serves as a long-term engineering platform for designing and testing cyber-physical systems that perceive, understand, and interact with the world in real time.
+## Features
 
-The project currently uses affordable microcontrollers, sensors, and single-board computers as research platforms while laying the groundwork for future custom hardware—including original firmware, operating systems, communication protocols, and eventually custom system-on-chip (SoC) designs.
+* Live ARP table monitoring
+* Route table visualization
+* Firewall rule management
+* DNS cache management
+* DHCP release and renewal controls
+* Network diagnostics
+* Event logging and CSV export
+* Local security tracking
+* Interactive Windows HTA dashboard
+* Modular batch automation support
 
-Cyber-Bio is designed to grow alongside Project Aether, forming a unified ecosystem that combines environmental awareness, intelligent networking, wearable sensing, spatial perception, and human-computer interaction.
+## Project Goals
 
-Vision
+The long-term goal is to build an open security platform that teaches how computer networks actually function.
 
-Create an open cyber-physical ecosystem capable of:
+Rather than replacing human decision making, the project is designed to make network behavior understandable so that users, developers, and future AI systems can reason about infrastructure using transparent logic.
 
-Understanding its environment
-Understanding its network
-Understanding the user
-Assisting rather than replacing human decision-making
-Remaining transparent, explainable, and modular
+ARP Table Guard serves as one of the foundational components of the larger **Cyber-Bio** ecosystem.
 
-The long-term goal is to develop an independent technology stack—from firmware to hardware—that encourages learning, experimentation, and responsible engineering.
+## Roadmap
 
-Research Areas
-Cybersecurity
-Network discovery
-Wi-Fi analysis
-Bluetooth Low Energy monitoring
-Classic Bluetooth analysis
-ARP and routing inspection
-Firewall automation
-Local intrusion awareness
-Edge-based security monitoring
-Artificial Intelligence
-Local AI inference
-Embedded machine learning
-Sensor fusion
-Pattern recognition
-Environmental anomaly detection
-Context-aware automation
-Explainable AI for cyber-physical systems
-Cyber-Bio
+Future development includes:
 
-Research into wearable sensing technologies including:
+* AI-assisted network analysis
+* Distributed sensor nodes
+* LoRa communication
+* XR visualization
+* Offline mapping integration
+* Spatial awareness interfaces
+* Custom hardware development
+* Radxa X5 experimentation
+* Embedded Linux operating system research
+* Future custom motherboard and SBC architecture
 
-EMG
-ECG
-Motion sensing
-Environmental monitoring
-Biosignal processing
-Human-machine interfaces
+## Cyber-Bio Ecosystem
 
-The objective is to better understand how biological signals can complement cyber-physical systems while maintaining user privacy and local processing whenever practical.
+This repository is one building block of the Cyber-Bio initiative.
 
-Project Aether
+Cyber-Bio explores the intersection of:
 
-Project Aether focuses on spatial intelligence.
+* Cybersecurity
+* Embedded systems
+* Robotics
+* AI-assisted computing
+* Human-computer interaction
+* Sensor fusion
+* Spatial intelligence
+* Home automation
+* Experimental operating systems
 
-Future capabilities include:
+Every project contributes toward a larger modular ecosystem where hardware, software, AI, and sensor networks work together while remaining understandable, transparent, and user-controlled.
 
-Environmental perception
-Sensor fusion
-XR visualization
-Digital mapping
-Motion awareness
-Directional sensing
-Multi-sensor situational awareness
-Embedded Systems
+## Status
 
-Current development platforms include:
+> Experimental Research Project
 
-ESP32 family
-Arduino
-Seeed Studio XIAO series
-Raspberry Pi-class SBCs
-Future Radxa X5 development platform
+This repository is under active development. Features, interfaces, and architecture may change frequently as new ideas are explored and tested.
 
-These systems act as stepping stones toward future custom hardware.
-
-Future Hardware
-
-Long-term objectives include developing:
-
-Custom firmware
-Custom embedded operating system
-Cyber-Bio software framework
-AI acceleration architecture
-Custom single-board computer
-Custom motherboard
-Experimental processor architecture
-
-The immediate roadmap focuses on learning from existing open hardware before designing original platforms.
-
-Communications
-
-Research includes resilient communication methods such as:
-
-Wi-Fi
-Bluetooth
-BLE
-LoRa
-Mesh networking
-Edge computing
-Offline mapping
-Local-first infrastructure
-
-The emphasis is on reliable communication for distributed cyber-physical systems.
-
-XR & Spatial Computing
-
-Future research includes combining:
-
-Offline maps
-Environmental sensing
-Sensor fusion
-AI
-Wearable interfaces
-Extended Reality
-
-to create intuitive spatial interfaces for interacting with cyber-physical systems.
-
-Development Philosophy
-
-Cyber-Bio follows several guiding principles:
-
-Learn before automating.
-Build openly.
-Design modular systems.
-Keep humans in control.
-Prefer local processing whenever possible.
-Make systems explainable.
-Experiment responsibly.
-Document everything.
-
-Technology should augment human capability—not obscure how systems work.
-
-Current Hardware
-
-Current prototypes include combinations of:
-
-ESP32
-ESP32-S3
-ESP32-C5 (future experimentation)
-Arduino platforms
-Environmental sensors
-IMUs
-Bio-sensors
-OLED and TFT displays
-LoRa radios
-Radar sensors
-Audio interfaces
-Future Roadmap
-Phase 1
-Embedded cyber-physical prototypes
-Sensor fusion
-Local AI
-Security dashboard
-Network awareness
-Phase 2
-Project Aether
-Cyber-Bio wearable platform
-XR integration
-LoRa networking
-Spatial perception
-Phase 3
-Radxa X5 development
-Custom firmware
-Experimental operating system
-AI runtime
-Phase 4
-Custom SBC
-Custom motherboard
-Dedicated Cyber-Bio hardware
-Open hardware ecosystem
-Open Source
-
-Cyber-Bio is an experimental research platform intended for education, learning, prototyping, and exploration.
-
-The project welcomes engineers, makers, researchers, students, and anyone interested in embedded systems, AI, cybersecurity, cyber-physical systems, and open hardware.
-
-Project Motto
-
-Observe. Learn. Build. Evolve.
-
-Cover Art Concept
-
-For the repository banner, I'd envision a cinematic dark sci-fi composition that unifies all of your work:
-
-A central figure wearing a Cyber-Bio headset overlooking a holographic Earth.
-A glowing neural network connecting wearable devices, ESP32 boards, a future Radxa X5, drones, sensors, and edge nodes.
-Floating holographic panels showing network topology, AI inference, biosignals, and XR overlays.
-A DNA helix merging seamlessly into circuit traces to symbolize the fusion of biology and technology.
-A subtle blueprint of a future custom motherboard and processor in the background.
-Orbiting satellites and LoRa gateways connected by luminous mesh-network links.
-A cool palette of deep blues, cyan, and violet with clean white accents, matching the futuristic aesthetic of your previous project artwork.
-
-This would position Cyber-Bio as the umbrella project that encompasses your embedded systems, cybersecurity, AI, biosensing, and Project Aether research while leaving room for the platform to evolve over time.
+Contributions, feedback, and discussions are always welcome.
