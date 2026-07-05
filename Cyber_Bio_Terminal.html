@@ -44,6 +44,7 @@
         var fso = new ActiveXObject("Scripting.FileSystemObject");
         var dnsTimerId = null;
         var deletedRefreshTimerId = null;
+        var ramSweepTimerId = null;
         var TXT_GROUP_PATH = "C:\\NetworkMonitor\\blocked_ips_tracker.txt";
         var DELETED_TRACKER_PATH = "C:\\NetworkMonitor\\deleted_items_tracker.txt";
         var DELETED_TRACKER_FALLBACK_PATHS = ["C:\\Users\\Administrator\\Documents\\deleted_items_tracker.txt", "C:\\Temp\\deleted_items_tracker.txt"];
@@ -103,6 +104,7 @@
             try {
                 if (deletedRefreshTimerId !== null) clearInterval(deletedRefreshTimerId);
                 if (dnsTimerId !== null) clearInterval(dnsTimerId);
+                if (ramSweepTimerId !== null) clearInterval(ramSweepTimerId);
             } catch (e) {}
         };
 
@@ -117,6 +119,46 @@
                 if (document.getElementById('log-box')) {
                     document.getElementById('log-box').innerText += "\n[CSV Log Error] " + err.message;
                 }
+            }
+        }
+
+        function showStyledAlert(title, message, details) {
+            try {
+                var popup = window.open('', 'secguardAlert_' + new Date().getTime(), 'width=560,height=420,resizable=yes,scrollbars=yes');
+                if (!popup) {
+                    alert(title + "\n\n" + message + (details ? "\n\n" + details : ""));
+                    return;
+                }
+
+                var safeTitle = (title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                var safeMessage = (message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                var safeDetails = (details || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+
+                var html = '' +
+                    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + safeTitle + '</title>' +
+                    '<style>' +
+                    'body{margin:0;padding:14px;background:#0f172a;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}' +
+                    '.card{background:#1e293b;border-radius:12px;padding:14px;box-shadow:0 10px 15px -3px rgba(0,0,0,.35);}' +
+                    'h2{margin:0 0 8px 0;font-size:18px;color:#fca5a5;border-bottom:2px solid #334155;padding-bottom:6px;}' +
+                    '.msg{font-size:13px;color:#e2e8f0;margin-bottom:10px;}' +
+                    '.details{background:#020617;border:1px solid #334155;border-radius:8px;padding:10px;font-family:monospace;font-size:12px;color:#38bdf8;max-height:220px;overflow:auto;white-space:normal;word-break:break-word;}' +
+                    '.footer{margin-top:10px;display:flex;justify-content:flex-end;}' +
+                    'button{border:none;background:#be123c;color:#fff;padding:7px 12px;border-radius:6px;font-weight:bold;cursor:pointer;}' +
+                    '</style></head><body>' +
+                    '<div class="card">' +
+                    '<h2>' + safeTitle + '</h2>' +
+                    '<div class="msg">' + safeMessage + '</div>' +
+                    '<div class="details">' + safeDetails + '</div>' +
+                    '<div class="footer"><button onclick="window.close()">Close</button></div>' +
+                    '</div>' +
+                    '</body></html>';
+
+                popup.document.open();
+                popup.document.write(html);
+                popup.document.close();
+                popup.focus();
+            } catch (e) {
+                alert(title + "\n\n" + message + (details ? "\n\n" + details : ""));
             }
         }
 
@@ -180,7 +222,7 @@
                     var detailText = "[" + timestamp + "] New ARP entry detected: " + newArpEntries.join(", ");
                     document.getElementById('log-box').innerText = detailText;
                     writeToCsvLog("ARP_NEW_ENTRY", newArpEntries.join(", "), "Detected a new ARP entry during scan.");
-                    alert("New ARP entry detected:\n" + newArpEntries.join("\n"));
+                    showStyledAlert("New ARP Entry Detected", "SecGuard detected new neighbor entries.", newArpEntries.join("\n"));
                     setTimeout(runArpMonitor, 2000);
                     return;
                 }
@@ -199,9 +241,11 @@
                     var timestamp = new Date().toLocaleTimeString();
                     document.getElementById('log-box').innerText = "[" + timestamp + "] Network configuration mismatch! Items found: " + validLinesCount + "\nFlushing network interfaces...";
                     triggerSecurityCleanup();
+                    setTimeout(runArpMonitor, 2000);
                 }
             } catch (e) {
                 document.getElementById('log-box').innerText = "System Error: " + e.message;
+                setTimeout(runArpMonitor, 3000);
             }
         }
 
@@ -525,7 +569,17 @@
             if (dnsTimerId === null) {
                 document.getElementById('dns-state').innerText = "🔄 DNS LOOP: ACTIVE";
                 document.getElementById('dns-state').className = "dns-status dns-active";
-                dnsTimerId = setInterval(function() { shell.Run("ipconfig /flushdns", 0, false); }, 100);
+                try {
+                    var batchPath = 'C:\\NetworkMonitor\\dns_flush_loop.bat';
+                    if (!fso.FileExists(batchPath)) {
+                        document.getElementById('log-box').innerText = "[ERROR] DNS flush script not found: " + batchPath;
+                        return;
+                    }
+                    shell.Run('cmd.exe /c start "DNS Flush" "' + batchPath + '"', 1, false);
+                    writeToCsvLog('DNS_FLUSH_LOOP', batchPath, 'Started DNS flush loop via UI');
+                } catch (err) {
+                    document.getElementById('log-box').innerText = "[ERROR] " + err.message;
+                }
             }
         }
 
@@ -651,19 +705,48 @@
             logBox.setAttribute("data-busy", "true");
             logBox.innerText = "[" + timestamp + "] Initiating RAM and System Cache purification...\n";
             try {
-                var userTemp = shell.ExpandEnvironmentStrings("%TEMP%");
-                var sysRoot = shell.ExpandEnvironmentStrings("%SystemRoot%");
-                shell.Run('cmd.exe /c del /q /f /s "' + userTemp + '\\*.*" && for /d %x in ("' + userTemp + '\\*") do rmdir /s /q "%x"', 0, true);
-                shell.Run('cmd.exe /c del /q /f /s "' + sysRoot + '\\Temp\\*.*" && for /d %x in ("' + sysRoot + '\\Temp\\*") do rmdir /s /q "%x"', 0, true);
-                shell.Run('net stop wuauserv', 0, true);
-                shell.Run('cmd.exe /c del /q /f /s "' + sysRoot + '\\SoftwareDistribution\\Download\\*.*"', 0, true);
-                shell.Run('net start wuauserv', 0, true);
-                shell.Run('ipconfig /flushdns', 0, true);
-                logBox.innerText += "Memory and Cache cleared successfully!";
+                var batchPath = 'C:\\NetworkMonitor\\ram_clean_loop.bat';
+                if (!fso.FileExists(batchPath)) {
+                    logBox.innerText += "[ERROR] RAM cleanup script not found: " + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "RAM Clean" "' + batchPath + '"', 1, false);
+                logBox.innerText += "RAM cleanup process launched.";
+                writeToCsvLog('RAM_CLEAN', batchPath, 'Started RAM cleanup via UI');
             } catch (err) {
                 logBox.innerText += "\n[ERROR] Optimization interrupted: " + err.message;
             }
             setTimeout(function() { logBox.setAttribute("data-busy", "false"); }, 6000);
+        }
+
+        function startRamSweepLoop() {
+            if (ramSweepTimerId === null) {
+                try {
+                    var batchPath = 'C:\\NetworkMonitor\\ram_clean_loop.bat';
+                    if (!fso.FileExists(batchPath)) {
+                        document.getElementById('log-box').innerText = "[ERROR] RAM cleanup script not found: " + batchPath;
+                        return;
+                    }
+                    document.getElementById('ram-state').innerText = "🔄 RAM SWEEP: ACTIVE";
+                    document.getElementById('ram-state').className = "dns-status dns-active";
+                    shell.Run('cmd.exe /c start "RAM Sweep" "' + batchPath + '"', 1, false);
+                    ramSweepTimerId = setInterval(function() {
+                        shell.Run('cmd.exe /c start "RAM Sweep" "' + batchPath + '"', 1, false);
+                    }, 5000);
+                    writeToCsvLog('RAM_SWEEP_LOOP', batchPath, 'Started RAM sweep loop via UI');
+                } catch (err) {
+                    document.getElementById('log-box').innerText = "[ERROR] " + err.message;
+                }
+            }
+        }
+
+        function stopRamSweepLoop() {
+            if (ramSweepTimerId !== null) {
+                clearInterval(ramSweepTimerId);
+                ramSweepTimerId = null;
+                document.getElementById('ram-state').innerText = "⏹️ RAM SWEEP: STOPPED";
+                document.getElementById('ram-state').className = "dns-status";
+            }
         }
 
         function networkReset() {
@@ -701,6 +784,166 @@
                 shell.Run('cmd.exe /c start "Reset Firewall" "' + batchPath + '"', 1, false);
                 writeToCsvLog('FIREWALL_RESET', batchPath, 'Started firewall reset via UI');
                 if (logBox) logBox.innerText += '\n[INFO] Firewall reset started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function resetNetworkSecurityPolicy() {
+            if (!confirm('Reset local network security policy?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Resetting local security policy...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\reset_network_security_policy.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Security policy reset script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Reset Security Policy" "' + batchPath + '"', 1, false);
+                writeToCsvLog('SECURITY_POLICY_RESET', batchPath, 'Started network security policy reset via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Security policy reset started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function removeLocalGroups() {
+            if (!confirm('Remove local group entries and clear neighbor connections?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Removing local groups...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\remove_local_groups.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Remove local groups script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Remove Local Groups" "' + batchPath + '"', 1, false);
+                writeToCsvLog('REMOVE_LOCAL_GROUPS', batchPath, 'Started local groups removal via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Remove local groups started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runSafeMode() {
+            if (!confirm('Apply Safe Mode hardening changes? This will modify service startup values and registry settings.')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting Safe Mode hardening...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\safe_mode.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Safe Mode script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Safe Mode" "' + batchPath + '"', 1, false);
+                writeToCsvLog('SAFE_MODE', batchPath, 'Started Safe Mode hardening via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Safe Mode started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runFreshMode() {
+            if (!confirm('Apply Fresh Mode restoration changes? This will restore service startup values and registry settings.')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting Fresh Mode restoration...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\fresh_mode.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Fresh Mode script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Fresh Mode" "' + batchPath + '"', 1, false);
+                writeToCsvLog('FRESH_MODE', batchPath, 'Started Fresh Mode restoration via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Fresh Mode started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runEnableBootMode() {
+            if (!confirm('Enable legacy boot menu policy?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Enabling boot mode...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\enable_boot_mode.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Enable Boot Mode script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Enable Boot Mode" "' + batchPath + '"', 1, false);
+                writeToCsvLog('ENABLE_BOOT_MODE', batchPath, 'Started Enable Boot Mode via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Enable Boot Mode started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runDisableMulticast() {
+            if (!confirm('Disable multicast-related registry settings?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Disabling multicast settings...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\disable_multicast.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Disable Multicast script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Disable Multicast" "' + batchPath + '"', 1, false);
+                writeToCsvLog('DISABLE_MULTICAST', batchPath, 'Started Disable Multicast via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Disable Multicast started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runResetPermissionDefault() {
+            if (!confirm('Run Reset Permission to Default sequence?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Resetting permissions to default...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\reset_permissions_default.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Reset permission script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Reset Permission" "' + batchPath + '"', 1, false);
+                writeToCsvLog('RESET_PERMISSION_DEFAULT', batchPath, 'Started Reset Permission to Default via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Reset Permission started.';
+            } catch (err) {
+                if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
+            }
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+        }
+
+        function runTakeFullControlAdmin() {
+            if (!confirm('Run Take Full Control (Administrator Mode) sequence?')) return;
+            var logBox = document.getElementById('log-box');
+            var timestamp = new Date().toLocaleTimeString();
+            if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Applying full control ownership changes...'; }
+            try {
+                var batchPath = 'C:\\NetworkMonitor\\take_full_control_admin.bat';
+                if (!fso.FileExists(batchPath)) {
+                    if (logBox) logBox.innerText += '\n[ERROR] Take full control script not found: ' + batchPath;
+                    return;
+                }
+                shell.Run('cmd.exe /c start "Take Full Control" "' + batchPath + '"', 1, false);
+                writeToCsvLog('TAKE_FULL_CONTROL_ADMIN', batchPath, 'Started Take Full Control Administrator Mode via UI');
+                if (logBox) logBox.innerText += '\n[INFO] Take Full Control started.';
             } catch (err) {
                 if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
             }
@@ -762,8 +1005,19 @@
                 <button class="btn btn-scan" style="background: #312e81;" onclick="showNetworkConnections()">Show Network Connections</button>
                 <button class="btn" style="background: #dc2626;" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
                 <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
+                <button class="btn btn-start" style="background:#0f766e;" onclick="startRamSweepLoop()">Start RAM Sweep</button>
+                <button class="btn btn-stop" style="background:#475569;" onclick="stopRamSweepLoop()">Stop RAM Sweep</button>
+                <div id="ram-state" class="dns-status">⏹️ RAM SWEEP: STOPPED</div>
                 <button class="btn" style="background:#7f1d1d;" onclick="networkReset()">Network Reset</button>
                 <button class="btn" style="background:#0f766e;" onclick="resetFirewall()">Reset Firewall</button>
+                <button class="btn" style="background:#7c2d12;" onclick="resetNetworkSecurityPolicy()">Reset Network Security</button>
+                <button class="btn" style="background:#3f6212;" onclick="removeLocalGroups()">Remove Local Groups</button>
+                <button class="btn" style="background:#1d4ed8;" onclick="runSafeMode()">Safe Mode</button>
+                <button class="btn" style="background:#f59e0b;" onclick="runFreshMode()">Fresh Mode</button>
+                <button class="btn" style="background:#0ea5a4;" onclick="runEnableBootMode()">Enable Boot Mode</button>
+                <button class="btn" style="background:#b45309;" onclick="runDisableMulticast()">Disable Multicast</button>
+                <button class="btn" style="background:#7c3aed;" onclick="runResetPermissionDefault()">Reset Permission to Default</button>
+                <button class="btn" style="background:#be123c;" onclick="runTakeFullControlAdmin()">Take Full Control (Admin)</button>
             </div>
             <div class="col">
                 <h3>DNS Overdrive Engine:</h3>
