@@ -16,27 +16,91 @@
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 12px; margin: 0; }
         .card { max-width: 640px; margin: 0 auto; background: #1e293b; padding: 15px; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
-        h1 { margin-top: 0; margin-bottom: 5px; font-size: 18px; border-bottom: 2px solid #334155; padding-bottom: 4px; }
-        h3 { margin: 6px 0 3px 0; font-size: 12px; color: #94a3b8; }
-        .status { font-size: 0.95rem; font-weight: bold; padding: 5px; border-radius: 6px; text-align: center; margin: 8px 0; }
-        .safe { background: #065f46; color: #34d399; }
-        .alert { background: #991b1b; color: #fca5a5; }
-        pre { background: #020617; padding: 8px; border-radius: 8px; font-family: monospace; font-size: 11px; color: #38bdf8; overflow-y: auto; overflow-x: hidden; white-space: pre-wrap; margin: 0; border: 1px solid #1e293b; }
+        h1 { margin-top: 0; margin-bottom: 5px; font-size: 18px; border-bottom: 2px solid #334155; padding-bottom: 4px; letter-spacing: normal; text-shadow: none; color: #f8fafc; }
+        h3 { margin: 6px 0 3px 0; font-size: 12px; color: #94a3b8; text-transform: none; letter-spacing: normal; }
+        .status { font-size: 0.95rem; font-weight: bold; padding: 5px; border-radius: 6px; text-align: center; margin: 8px 0; border: none; background: transparent; }
+        .safe { background: #065f46; color: #34d399; text-shadow: none; }
+        .alert { background: #991b1b; color: #fca5a5; text-shadow: none; }
+        pre { background: #020617; padding: 8px; border-radius: 8px; font-family: monospace; font-size: 11px; color: #38bdf8; overflow-y: auto; overflow-x: hidden; white-space: pre-wrap; margin: 0; border: 1px solid #1e293b; box-shadow: none; }
+
         .log-box { height: 180px; color: #e2e8f0; }
         .table-box { height: 110px; color: #cbd5e1; border: 1px solid #334155; }
         .route-box { height: 110px; color: #a7f3d0; border: 1px solid #334155; }
         .rules-box { height: 120px; color: #d1fae5; border: 1px solid #334155; }
-        .highlight { color: #34d399; font-weight: bold; }
+        .highlight { color: #34d399; font-weight: bold; text-shadow: none; }
+
+        .top-header { margin-bottom: 10px; }
+        .top-header-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+        .dashboard-container { display: flex; flex-direction: column; gap: 10px; }
+        .column { display: flex; flex-direction: column; gap: 10px; }
+        .panel { background: transparent; border: 0; border-radius: 0; padding: 0; box-shadow: none; position: static; display: block; }
+        .panel::before { display: none; }
+        .panel-title { color: #94a3b8; font-size: 12px; font-weight: 600; border-bottom: 0; padding-bottom: 0; margin-bottom: 3px; text-transform: none; letter-spacing: normal; }
+
+        .action-row { display: flex; gap: 8px; margin-top: 6px; margin-bottom: 2px; align-items: center; }
+        .action-row .btn, .action-row select, .action-row input[type="search"] { height: 30px; min-height: 30px; margin: 0 !important; }
+        .action-row .btn { display: inline-block; white-space: nowrap; }
+
+        .actions-scroll { max-height: none; overflow: visible; padding-right: 0; display: flex; flex-direction: column; gap: 5px; }
+
         .controls-grid { display: flex; flex-direction: row; gap: 10px; margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; }
         .col { flex: 1; display: flex; flex-direction: column; gap: 5px; }
         .btn { border: none; padding: 6px 10px; font-size: 11px; font-weight: bold; border-radius: 6px; cursor: pointer; color: white; width: 100%; text-align: center; margin-bottom: 2px; }
         .btn-start { background: #2563eb; }
+        .btn-start:hover { background: #1d4ed8; }
         .btn-stop { background: #475569; }
+        .btn-stop:hover { background: #334155; }
         .btn-ram { background: #059669; }
+        .btn-ram:hover { background: #047857; }
         .btn-scan { background: #d97706; }
+        .btn-scan:hover { background: #b45309; }
+
+        .w-140 { width: 140px !important; }
+        .w-150 { width: 150px !important; }
+        .w-160 { width: 160px !important; }
+        .w-180 { width: 180px !important; }
+
+        .tone-slate { background: #334155 !important; }
+        .tone-sky { background: #0ea5e9 !important; }
+        .tone-blue { background: #2563eb !important; }
+        .tone-indigo { background: #312e81 !important; }
+        .tone-violet { background: #7c3aed !important; }
+        .tone-purple { background: #7e22ce !important; }
+        .tone-teal { background: #0f766e !important; }
+        .tone-aqua { background: #0ea5a4 !important; }
+        .tone-green { background: #15803d !important; }
+        .tone-olive { background: #3f6212 !important; }
+        .tone-emerald { background: #166534 !important; }
+        .tone-orange { background: #b45309 !important; }
+        .tone-amber { background: #f59e0b !important; }
+        .tone-yellow { background: #eab308 !important; }
+        .tone-red { background: #b91c1c !important; }
+        .tone-crimson { background: #be123c !important; }
+        .tone-maroon { background: #7f1d1d !important; }
+        .tone-deepred { background: #991b1b !important; }
+        .tone-brown { background: #7c2d12 !important; }
+        .tone-gold { background: #ca8a04 !important; }
+        .tone-gray { background: #475569 !important; }
+        .tone-danger { background: #dc2626 !important; }
+
+        .text-dark { color: #020617 !important; }
+        .title-blue { color: #38bdf8 !important; margin-top: 10px; }
+        .title-green { color: #a7f3d0 !important; margin-top: 10px; }
+        .tracker-box { color: #fde047 !important; height: 90px; }
+        .rules-out-box { color: #bfdbfe !important; }
+
         .dns-status { font-size: 11px; font-weight: bold; text-align: center; color: #64748b; margin-top: 1px; }
         .dns-active { color: #38bdf8; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        body.dark-theme { background: #020617; }
+        body.dark-theme .card { background: #0f172a; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.45); }
+
+        @media (max-width: 900px) {
+            .card { max-width: 100%; }
+            .w-180, .w-160, .w-150, .w-140 { width: auto !important; }
+        }
     </style>
     <script language="JavaScript">
         window.resizeTo(640, 1080);
@@ -44,6 +108,7 @@
         var shell = new ActiveXObject("WScript.Shell");
         var fso = new ActiveXObject("Scripting.FileSystemObject");
         var isFullscreenMode = false;
+        var isDarkTheme = false;
         var normalWindowBounds = { left: 0, top: 0, width: 640, height: 1080 };
         var dnsTimerId = null;
         var deletedRefreshTimerId = null;
@@ -145,6 +210,25 @@
             } catch (err) {
                 if (document.getElementById('log-box')) {
                     document.getElementById('log-box').innerText += '\n[Full Screen Error] ' + err.message;
+                }
+            }
+        }
+
+        function toggleDarkThemeMode() {
+            try {
+                var themeBtn = document.getElementById('theme-toggle-btn');
+                if (!isDarkTheme) {
+                    document.body.className = 'dark-theme';
+                    isDarkTheme = true;
+                    if (themeBtn) themeBtn.innerText = 'Dark Theme: ON';
+                } else {
+                    document.body.className = '';
+                    isDarkTheme = false;
+                    if (themeBtn) themeBtn.innerText = 'Dark Theme: OFF';
+                }
+            } catch (err) {
+                if (document.getElementById('log-box')) {
+                    document.getElementById('log-box').innerText += '\n[Theme Error] ' + err.message;
                 }
             }
         }
@@ -1489,136 +1573,163 @@
 </head>
 <body onload="initializeSystem()">
     <div class="card">
-        <h1>ARP Table Guard Status</h1>
-        <div id="status-box" class="status safe">Initializing Monitor Engine...</div>
-
-        <h3>Live Event Monitor Log:</h3>
-        <pre id="log-box" class="pre log-box" data-busy="false">Awaiting first scan cycle...</pre>
-
-        <h3 style="color: #c4b5fd; margin-top: 10px;">Select Network Connection to Remove:</h3>
-        <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-            <select id="connection-selector" style="flex: 1; background: #020617; color: #c4b5fd; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
-                <option value="">-- Run Show Network Connections to load items --</option>
-            </select>
-            <button class="btn" style="background: #7e22ce; width: 180px; height: 30px; margin:0;" onclick="removeSelectedConnection()">Remove Connection</button>
-        </div>
-
-        <h3>Live System ARP Table Output (arp -a):</h3>
-        <pre id="table-box" class="pre table-box">Loading ARP records...</pre>
-
-        <h3 style="color: #38bdf8; margin-top: 10px;">Select a Target ARP Record to Manage / Isolate:</h3>
-        <select id="arp-selector" onchange="onArpSelectChange()" style="width: 100%; background: #020617; color: #38bdf8; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px; margin-bottom: 6px;">
-            <option value="">-- Choose an active ARP connection entry --</option>
-        </select>
-        <div style="display: flex; gap: 8px; margin-bottom: 5px;">
-            <button class="btn" style="background: #eab308; color: #020617; flex: 1; height: 30px; margin:0;" onclick="blockSelectedIp()">⚠️ Block IP & Assign to Group</button>
-            <button class="btn" style="background: #9f1239; width: 150px; height: 30px; margin:0;" onclick="removeSelectedArp()">Delete ARP</button>
-            <button class="btn" style="background: #2563eb; width: 140px; height: 30px; margin:0;" onclick="searchSelectedArp()">Search Selected ARP</button>
-        </div>
-
-        <h3 style="color: #eab308;">Deleted Items Tracker (Local GUI):</h3>
-        <pre id="firewall-box" class="pre route-box" style="color: #fde047; height: 90px;">Reading active file tracking parameters...</pre>
-        <div style="margin-top: 6px; margin-bottom: 8px;">
-            <input id="firewall-rule-search" type="search" placeholder="Search firewall rules or enter exact name to delete" style="width: 100%; background: #020617; color: #fde047; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; box-sizing: border-box;" />
-            <div style="display:flex; gap:8px; margin-top:6px;">
-                <button class="btn btn-scan" style="background: #0ea5e9; flex:1;" onclick="searchFirewallRule()">Search Rule</button>
-                <button class="btn" style="background:#ca8a04; color:#020617; width:160px;" onclick="deleteFirewallRuleByName()">Delete Rule</button>
-                <button class="btn" style="background:#475569; color:#fde047; width:140px;" onclick="appendDeletedEntry('TEST', 'UI Test Entry')">Debug Write</button>
+        <div class="top-header">
+            <h1>ARP Table Guard Status</h1>
+            <div id="status-box" class="status safe">Initializing Monitor Engine...</div>
+            <div class="top-header-actions">
+                <button id="theme-toggle-btn" class="btn tone-slate w-180" onclick="toggleDarkThemeMode()">Dark Theme: OFF</button>
             </div>
         </div>
 
-        <h3 style="color: #86efac;">Windows Firewall Incoming Rules:</h3>
-        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px;">
-            <button id="firewall-view-in-all-btn" class="btn" style="background:#334155; flex:1; margin:0;" onclick="setFirewallRuleViewMode('in','all')">All</button>
-            <button id="firewall-view-in-block-btn" class="btn" style="background:#15803d; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('in','block')">Block</button>
-            <button id="firewall-view-in-unblock-btn" class="btn" style="background:#b91c1c; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('in','unblock')">Unblock</button>
-        </div>
-        <div id="firewall-rules-in-summary" class="dns-status" style="color:#86efac; margin-bottom:4px;">Enabled: 0 | Disabled: 0 | Changed: 0</div>
-        <pre id="firewall-rules-in-box" class="pre rules-box">Loading incoming firewall rules...</pre>
-        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px; align-items:center;">
-            <select id="firewall-rule-in-selector" style="flex:1; background:#020617; color:#86efac; border:1px solid #334155; padding:6px; border-radius:6px; font-family:monospace; font-size:12px; height:30px;">
-                <option value="">-- Select incoming firewall rule --</option>
-            </select>
-        </div>
-        <div style="display:flex; gap:12px; margin-top:0; margin-bottom:6px; align-items:center;">
-            <button class="btn" style="background:#15803d; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('in','yes')">Block</button>
-            <button class="btn" style="background:#b91c1c; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('in','no')">Unblock</button>
-        </div>
-        <h3 style="color: #93c5fd;">Windows Firewall Outgoing Rules:</h3>
-        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px;">
-            <button id="firewall-view-out-all-btn" class="btn" style="background:#334155; flex:1; margin:0;" onclick="setFirewallRuleViewMode('out','all')">All</button>
-            <button id="firewall-view-out-block-btn" class="btn" style="background:#15803d; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('out','block')">Block</button>
-            <button id="firewall-view-out-unblock-btn" class="btn" style="background:#b91c1c; flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('out','unblock')">Unblock</button>
-        </div>
-        <div id="firewall-rules-out-summary" class="dns-status" style="color:#93c5fd; margin-bottom:4px;">Enabled: 0 | Disabled: 0 | Changed: 0</div>
-        <pre id="firewall-rules-out-box" class="pre rules-box" style="color:#bfdbfe;">Loading outgoing firewall rules...</pre>
-        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:6px; align-items:center;">
-            <select id="firewall-rule-out-selector" style="flex:1; background:#020617; color:#93c5fd; border:1px solid #334155; padding:6px; border-radius:6px; font-family:monospace; font-size:12px; height:30px;">
-                <option value="">-- Select outgoing firewall rule --</option>
-            </select>
-        </div>
-        <div style="display:flex; gap:12px; margin-top:0; margin-bottom:6px; align-items:center;">
-            <button class="btn" style="background:#15803d; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('out','yes')">Block</button>
-            <button class="btn" style="background:#b91c1c; flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('out','no')">Unblock</button>
-        </div>
-        <div style="display:flex; gap:8px; margin-top:6px; margin-bottom:8px;">
-            <button class="btn" style="background:#991b1b;" onclick="runLockdownFirewallRules()">Lockdown Firewall Rules</button>
-            <button class="btn" style="background:#1d4ed8;" onclick="runGameModeFirewallRules()">Game Mode Firewall Rules</button>
-            <button class="btn" style="background:#0f766e;" onclick="resetFirewall()">Reset Firewall Rules</button>
-        </div>
-        <div style="display:flex; gap:8px; margin-top:0; margin-bottom:8px;">
-            <button class="btn" style="background:#166534;" onclick="runFirewallRulesPanel()">Refresh Firewall Rules</button>
-        </div>
+        <div class="dashboard-container">
+            <div class="column">
+                <div class="panel">
+                    <div class="panel-title">Live Event Monitor Log</div>
+                    <pre id="log-box" class="pre log-box" data-busy="false">Awaiting first scan cycle...</pre>
+                </div>
 
-        <h3>Active Windows IP Routing Table (route print):</h3>
-        <pre id="route-box" class="pre route-box">Reading Windows kernel route table entries...</pre>
+                <div class="panel">
+                    <div class="panel-title">Live System ARP Table Output (arp -a)</div>
+                    <pre id="table-box" class="pre table-box">Loading ARP records...</pre>
+                    <h3 class="title-blue">Select a Target ARP Record to Manage / Isolate:</h3>
+                    <select id="arp-selector" onchange="onArpSelectChange()" style="width: 100%; background: #020617; color: #38bdf8; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px; margin-bottom: 6px;">
+                        <option value="">-- Choose an active ARP connection entry --</option>
+                    </select>
+                    <div class="action-row">
+                        <button class="btn tone-yellow text-dark" style="flex: 1; height: 30px; margin:0;" onclick="blockSelectedIp()">⚠️ Block IP & Assign to Group</button>
+                        <button class="btn tone-crimson w-150" style="height: 30px; margin:0;" onclick="removeSelectedArp()">Delete ARP</button>
+                        <button class="btn tone-blue w-140" style="height: 30px; margin:0;" onclick="searchSelectedArp()">Search Selected ARP</button>
+                    </div>
+                </div>
 
-        <h3 style="color: #a7f3d0; margin-top: 10px;">Select Route Destinations to Delete:</h3>
-        <div style="display: flex; gap: 8px; margin-bottom: 5px; align-items: center;">
-            <select id="route-selector-v4" style="flex: 1; background: #020617; color: #34d399; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
-                <option value="">-- Choose an active IPv4 route destination --</option>
-            </select>
-            <button class="btn" style="background: #be123c; width: 150px; height: 30px; margin:0;" onclick="removeSelectedRoute(4)">Delete IPv4</button>
-        </div>
-        <div style="display: flex; gap: 8px; margin-bottom: 5px; align-items: center;">
-            <select id="route-selector-v6" style="flex: 1; background: #020617; color: #7dd3fc; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
-                <option value="">-- Choose an active IPv6 route destination --</option>
-            </select>
-            <button class="btn" style="background: #9f1239; width: 150px; height: 30px; margin:0;" onclick="removeSelectedRoute(6)">Delete IPv6</button>
-        </div>
-
-        <div class="controls-grid">
-            <div class="col">
-                <h3>Monitor Diagnostics:</h3>
-                <button id="fullscreen-toggle-btn" class="btn" style="background:#334155;" onclick="toggleFullscreenMode()">Full Screen</button>
-                <button class="btn btn-scan" onclick="runArpMonitor()">Rescan ARP Table</button>
-                <button class="btn btn-scan" style="background: #7c3aed;" onclick="runRoutePrint()">Show Route Table</button>
-                <button class="btn btn-scan" style="background: #0f766e;" onclick="releaseDhcpLease()">Release DHCP</button>
-                <button class="btn btn-scan" style="background: #2563eb;" onclick="renewDhcpLease()">Renew DHCP</button>
-                <button class="btn btn-scan" style="background: #7c2d12;" onclick="cleanRoutes()">Clear Route</button>
-                <button class="btn btn-scan" style="background: #312e81;" onclick="showNetworkConnections()">Show Network Connections</button>
-                <button class="btn" style="background: #dc2626;" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
-                <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
-                <button class="btn" style="background:#7f1d1d;" onclick="networkReset()">Network Reset</button>
-                <button class="btn" style="background:#0f766e;" onclick="resetFirewall()">Reset Firewall</button>
-                <button class="btn" style="background:#7c2d12;" onclick="resetNetworkSecurityPolicy()">Reset Network Security</button>
-                <button class="btn" style="background:#3f6212;" onclick="removeLocalGroups()">Remove Local Groups</button>
-                <button class="btn" style="background:#1d4ed8;" onclick="runSafeMode()">Safe Mode</button>
-                <button class="btn" style="background:#f59e0b;" onclick="runFreshMode()">Fresh Mode</button>
-                <button class="btn" style="background:#0ea5a4;" onclick="runEnableBootMode()">Enable Boot Mode</button>
-                <button class="btn" style="background:#b45309;" onclick="runDisableMulticast()">Disable Multicast</button>
-                <button class="btn" style="background:#7f1d1d;" onclick="runDisableServices()">Disable Services</button>
-                <button class="btn" style="background:#15803d;" onclick="runEnableServices()">Enable Services</button>
-                <button class="btn" style="background:#2563eb;" onclick="runGameMode()">Game Mode</button>
-                <button class="btn" style="background:#7c3aed;" onclick="runResetPermissionDefault()">Reset Permission to Default</button>
-                <button class="btn" style="background:#be123c;" onclick="runTakeFullControlAdmin()">Take Full Control (Admin)</button>
-                <button class="btn" style="background:#0f766e;" onclick="repairCorruptedSystemFiles()">Repair Corrupted System Files</button>
+                <div class="panel">
+                    <div class="panel-title">Active Windows IP Routing Table (route print)</div>
+                    <pre id="route-box" class="pre route-box">Reading Windows kernel route table entries...</pre>
+                    <h3 class="title-green">Select Route Destinations to Delete:</h3>
+                    <div class="action-row">
+                        <select id="route-selector-v4" style="flex: 1; background: #020617; color: #34d399; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                            <option value="">-- Choose an active IPv4 route destination --</option>
+                        </select>
+                        <button class="btn tone-crimson w-150" style="height: 30px; margin:0;" onclick="removeSelectedRoute(4)">Delete IPv4</button>
+                    </div>
+                    <div class="action-row">
+                        <select id="route-selector-v6" style="flex: 1; background: #020617; color: #7dd3fc; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                            <option value="">-- Choose an active IPv6 route destination --</option>
+                        </select>
+                        <button class="btn tone-crimson w-150" style="height: 30px; margin:0;" onclick="removeSelectedRoute(6)">Delete IPv6</button>
+                    </div>
+                </div>
             </div>
-            <div class="col">
-                <h3>DNS Overdrive Engine:</h3>
-                <button class="btn btn-start" onclick="startDnsLoop()">Start DNS Flush</button>
-                <button class="btn btn-stop" onclick="stopDnsLoop()">Stop DNS Flush</button>
-                <div id="dns-state" class="dns-status">⏹️ DNS LOOP: STOPPED</div>
+
+            <div class="column">
+                <div class="panel">
+                    <div class="panel-title">Deleted Items Tracker (Local GUI)</div>
+                    <pre id="firewall-box" class="pre route-box tracker-box">Reading active file tracking parameters...</pre>
+                    <div style="margin-top: 6px; margin-bottom: 2px;">
+                        <input id="firewall-rule-search" type="search" placeholder="Search firewall rules or enter exact name to delete" style="width: 100%; background: #020617; color: #fde047; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; box-sizing: border-box;" />
+                        <div class="action-row">
+                            <button class="btn btn-scan tone-sky" style="flex:1;" onclick="searchFirewallRule()">Search Rule</button>
+                            <button class="btn tone-gold text-dark w-160" onclick="deleteFirewallRuleByName()">Delete Rule</button>
+                            <button class="btn tone-gray w-140" onclick="appendDeletedEntry('TEST', 'UI Test Entry')">Debug Write</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-title">Windows Firewall Incoming Rules</div>
+                    <div class="action-row">
+                        <button id="firewall-view-in-all-btn" class="btn tone-slate" style="flex:1; margin:0;" onclick="setFirewallRuleViewMode('in','all')">All</button>
+                        <button id="firewall-view-in-block-btn" class="btn tone-green" style="flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('in','block')">Block</button>
+                        <button id="firewall-view-in-unblock-btn" class="btn tone-red" style="flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('in','unblock')">Unblock</button>
+                    </div>
+                    <div id="firewall-rules-in-summary" class="dns-status" style="color:#86efac; margin-bottom:4px;">Enabled: 0 | Disabled: 0 | Changed: 0</div>
+                    <pre id="firewall-rules-in-box" class="pre rules-box">Loading incoming firewall rules...</pre>
+                    <div class="action-row">
+                        <select id="firewall-rule-in-selector" style="flex:1; background:#020617; color:#86efac; border:1px solid #334155; padding:6px; border-radius:6px; font-family:monospace; font-size:12px; height:30px;">
+                            <option value="">-- Select incoming firewall rule --</option>
+                        </select>
+                    </div>
+                    <div class="action-row" style="margin-top:0;">
+                        <button class="btn tone-green" style="flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('in','yes')">Block</button>
+                        <button class="btn tone-red" style="flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('in','no')">Unblock</button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-title">Windows Firewall Outgoing Rules</div>
+                    <div class="action-row">
+                        <button id="firewall-view-out-all-btn" class="btn tone-slate" style="flex:1; margin:0;" onclick="setFirewallRuleViewMode('out','all')">All</button>
+                        <button id="firewall-view-out-block-btn" class="btn tone-green" style="flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('out','block')">Block</button>
+                        <button id="firewall-view-out-unblock-btn" class="btn tone-red" style="flex:1; margin:0; opacity:0.65;" onclick="setFirewallRuleViewMode('out','unblock')">Unblock</button>
+                    </div>
+                    <div id="firewall-rules-out-summary" class="dns-status" style="color:#93c5fd; margin-bottom:4px;">Enabled: 0 | Disabled: 0 | Changed: 0</div>
+                    <pre id="firewall-rules-out-box" class="pre rules-box rules-out-box">Loading outgoing firewall rules...</pre>
+                    <div class="action-row">
+                        <select id="firewall-rule-out-selector" style="flex:1; background:#020617; color:#93c5fd; border:1px solid #334155; padding:6px; border-radius:6px; font-family:monospace; font-size:12px; height:30px;">
+                            <option value="">-- Select outgoing firewall rule --</option>
+                        </select>
+                    </div>
+                    <div class="action-row" style="margin-top:0;">
+                        <button class="btn tone-green" style="flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('out','yes')">Block</button>
+                        <button class="btn tone-red" style="flex:1; margin:0;" onclick="toggleFirewallRuleByDirection('out','no')">Unblock</button>
+                    </div>
+                    <div class="action-row" style="margin-bottom:4px;">
+                        <button class="btn tone-deepred" onclick="runLockdownFirewallRules()">Lockdown Firewall Rules</button>
+                        <button class="btn tone-blue" onclick="runGameModeFirewallRules()">Game Mode Firewall Rules</button>
+                        <button class="btn tone-teal" onclick="resetFirewall()">Reset Firewall Rules</button>
+                    </div>
+                    <div class="action-row" style="margin-top:0;">
+                        <button class="btn tone-emerald" onclick="runFirewallRulesPanel()">Refresh Firewall Rules</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="column">
+                <div class="panel">
+                    <div class="panel-title">Select Network Connection to Remove</div>
+                    <div class="action-row">
+                        <select id="connection-selector" style="flex: 1; background: #020617; color: #c4b5fd; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                            <option value="">-- Run Show Network Connections to load items --</option>
+                        </select>
+                        <button class="btn tone-purple w-180" style="height: 30px; margin:0;" onclick="removeSelectedConnection()">Remove Connection</button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-title">Action Console</div>
+                    <div class="actions-scroll">
+                        <button id="fullscreen-toggle-btn" class="btn tone-slate" onclick="toggleFullscreenMode()">Full Screen</button>
+                        <button class="btn btn-scan" onclick="runArpMonitor()">Rescan ARP Table</button>
+                        <button class="btn btn-scan tone-violet" onclick="runRoutePrint()">Show Route Table</button>
+                        <button class="btn btn-scan tone-teal" onclick="releaseDhcpLease()">Release DHCP</button>
+                        <button class="btn btn-scan tone-blue" onclick="renewDhcpLease()">Renew DHCP</button>
+                        <button class="btn btn-scan tone-brown" onclick="cleanRoutes()">Clear Route</button>
+                        <button class="btn btn-scan tone-indigo" onclick="showNetworkConnections()">Show Network Connections</button>
+                        <button class="btn tone-danger" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
+                        <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
+                        <button class="btn tone-maroon" onclick="networkReset()">Network Reset</button>
+                        <button class="btn tone-teal" onclick="resetFirewall()">Reset Firewall</button>
+                        <button class="btn tone-brown" onclick="resetNetworkSecurityPolicy()">Reset Network Security</button>
+                        <button class="btn tone-olive" onclick="removeLocalGroups()">Remove Local Groups</button>
+                        <button class="btn tone-blue" onclick="runSafeMode()">Safe Mode</button>
+                        <button class="btn tone-amber text-dark" onclick="runFreshMode()">Fresh Mode</button>
+                        <button class="btn tone-aqua" onclick="runEnableBootMode()">Enable Boot Mode</button>
+                        <button class="btn tone-orange" onclick="runDisableMulticast()">Disable Multicast</button>
+                        <button class="btn tone-maroon" onclick="runDisableServices()">Disable Services</button>
+                        <button class="btn tone-green" onclick="runEnableServices()">Enable Services</button>
+                        <button class="btn tone-blue" onclick="runGameMode()">Game Mode</button>
+                        <button class="btn tone-violet" onclick="runResetPermissionDefault()">Reset Permission to Default</button>
+                        <button class="btn tone-crimson" onclick="runTakeFullControlAdmin()">Take Full Control (Admin)</button>
+                        <button class="btn tone-teal" onclick="repairCorruptedSystemFiles()">Repair Corrupted System Files</button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-title">DNS Overdrive Engine</div>
+                    <button class="btn btn-start" onclick="startDnsLoop()">Start DNS Flush</button>
+                    <button class="btn btn-stop" onclick="stopDnsLoop()">Stop DNS Flush</button>
+                    <div id="dns-state" class="dns-status">⏹️ DNS LOOP: STOPPED</div>
+                </div>
             </div>
         </div>
     </div>
