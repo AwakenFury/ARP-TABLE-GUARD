@@ -125,6 +125,8 @@
         var firewallRuleViewModeOut = "all";
         var hiddenRouteDestinations = {};
         var hiddenNeighborEntries = {};
+        var actionClickLocked = false;
+        var actionClickLockMs = 1500;
         var CUSTOM_BLOCK_GROUP = "SecGuard_Blocked_IPs";
 
         var target1 = "72.69.1.1 cc-e1-7f-90-4a-cb dynamic";
@@ -181,6 +183,35 @@
             runFirewallRulesPanel();
             if (deletedRefreshTimerId === null) {
                 deletedRefreshTimerId = setInterval(runFirewallCheck, 3000);
+            }
+
+            // Prevent rapid multi-click firing of system actions.
+            if (!window.__secguardClickLockBound) {
+                document.addEventListener('click', function(ev) {
+                    var target = ev.target || ev.srcElement;
+                    if (!target || target.tagName !== 'BUTTON') return;
+
+                    var className = target.className || '';
+                    if (className.indexOf('btn') === -1) return;
+
+                    // Keep basic UI toggles responsive.
+                    if (target.id === 'theme-toggle-btn' || target.id === 'fullscreen-toggle-btn') return;
+
+                    if (actionClickLocked) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        var logBox = document.getElementById('log-box');
+                        if (logBox && logBox.getAttribute('data-busy') !== 'true') {
+                            logBox.innerText = '[INFO] One action at a time. Please wait...';
+                        }
+                        return false;
+                    }
+
+                    actionClickLocked = true;
+                    setTimeout(function() { actionClickLocked = false; }, actionClickLockMs);
+                }, true);
+
+                window.__secguardClickLockBound = true;
             }
         }
 
@@ -1440,21 +1471,30 @@
             var timestamp = new Date().toLocaleTimeString();
             if (logBox) { logBox.setAttribute('data-busy', 'true'); logBox.innerText = '[' + timestamp + '] Starting Network Reset...'; }
             try {
-                var preferredBatchPath = 'C:\\Users\\Administrator\\Documents\\Update Security 2024\\Network Reset.bat';
-                var fallbackBatchPath = 'C:\\NetworkMonitor\\network_reset.bat';
-                var batchPath = fso.FileExists(preferredBatchPath) ? preferredBatchPath : fallbackBatchPath;
-                if (!fso.FileExists(batchPath)) {
-                    if (logBox) logBox.innerText += '\n[ERROR] Network reset script not found: ' + batchPath;
-                    return;
-                }
-                // Launch visible command window to run the batch so user can see progress
-                shell.Run('cmd.exe /c start "Network Reset" "' + batchPath + '"', 1, false);
-                writeToCsvLog('NETWORK_RESET', batchPath, 'Started network reset via UI');
-                if (logBox) logBox.innerText += '\n[INFO] Network Reset started from: ' + batchPath;
+                shell.Run('cmd.exe /c ipconfig /flushdns', 0, true);
+                shell.Run('cmd.exe /c netsh advfirewall reset', 0, true);
+                shell.Run('cmd.exe /c arp -a', 0, true);
+                shell.Run('cmd.exe /c ipconfig /release', 0, true);
+                shell.Run('cmd.exe /c ipconfig /flushdns', 0, true);
+                shell.Run('cmd.exe /c ipconfig /renew', 0, true);
+                shell.Run('cmd.exe /c netsh int ip reset', 0, true);
+                shell.Run('cmd.exe /c netsh winsock reset', 0, true);
+                shell.Run('cmd.exe /c netsh advfirewall reset', 0, true);
+                shell.Run('cmd.exe /c taskkill /im steam.exe /f /t', 0, true);
+                shell.Run('cmd.exe /c net localgroup users "NT AUTHORITY\\authenticated Users" /delete', 0, true);
+                shell.Run('cmd.exe /c net localgroup users "NT AUTHORITY\\INTERACTIVE" /delete', 0, true);
+                shell.Run('cmd.exe /c netsh interface ipv4  delete neighbors', 0, true);
+                shell.Run('cmd.exe /c cmdkey.exe /list > "%TEMP%\\List.txt"', 0, true);
+                shell.Run('cmd.exe /c findstr.exe Target "%TEMP%\\List.txt" > "%TEMP%\\tokensonly.txt"', 0, true);
+                shell.Run('cmd.exe /c FOR /F "tokens=1,2 delims= " %G IN (%TEMP%\\tokensonly.txt) DO cmdkey.exe /delete:%H', 0, true);
+                shell.Run('cmd.exe /c del "%TEMP%\\List.txt" /s /f /q', 0, true);
+                shell.Run('cmd.exe /c del "%TEMP%\\tokensonly.txt" /s /f /q', 0, true);
+                writeToCsvLog('NETWORK_RESET', 'INLINE_SEQUENCE', 'Executed inline network reset sequence via UI (no external batch).');
+                if (logBox) logBox.innerText += '\n[INFO] Network reset inline sequence completed.';
             } catch (err) {
                 if (logBox) logBox.innerText += '\n[ERROR] ' + err.message;
             }
-            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 4000);
+            setTimeout(function() { if (logBox) logBox.setAttribute('data-busy', 'false'); }, 5000);
         }
 
         function resetFirewall() {
