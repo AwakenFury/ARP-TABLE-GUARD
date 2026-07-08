@@ -55,14 +55,21 @@
 
         var shell = new ActiveXObject("WScript.Shell");
         var dnsTimerId = null; 
+        var multicastTimerId = null;
+        var multicastBusy = false;
         
         var target1 = "72.69.1.1 cc-e1-7f-90-4a-cb dynamic";
         var target2 = "224.0.0.22 01-00-5e-00-00-16 static";
         var target3 = "239.255.255.250 01-00-5e-7f-ff-fa static";
 
+        function quoteWindowsArgument(value) {
+            return '"' + value.replace(/"/g, '""') + '"';
+        }
+
         function initializeSystem() {
             runArpMonitor();
             runRoutePrint();
+            runRoutePrint6();
             runCmdKey();
         }
 
@@ -140,6 +147,49 @@
             }
         }
 
+        function clearIpv4Neighbors() {
+            if (confirm("Delete all IPv4 neighbor entries?")) {
+                shell.Run('cmd.exe /c netsh interface ipv4 delete neighbors', 0, true);
+                runArpMonitor();
+            }
+        }
+
+        function clearIpv6Neighbors() {
+            if (confirm("Delete all IPv6 neighbor entries?")) {
+                shell.Run('cmd.exe /c netsh interface ipv6 delete neighbors', 0, true);
+                runArpMonitor();
+            }
+        }
+
+        function getActiveRouteEntries(routeOutput) {
+            var lines = routeOutput.split("\n");
+            var entries = [];
+            var seen = {};
+            var startParsing = false;
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].replace(/^\s+|\s+$/g, '');
+                if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
+                if (startParsing && (line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
+                    if (line.indexOf("===") !== -1 && entries.length > 0) { startParsing = false; }
+                    continue;
+                }
+
+                if (startParsing && line !== "") {
+                    var parts = line.replace(/\s+/g, ' ').split(' ');
+                    if (parts.length >= 2 && parts[0].match(/^\d+\.\d+\.\d+\.\d+$/) && parts[1].match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                        var key = parts[0] + '|' + parts[1];
+                        if (!seen[key]) {
+                            seen[key] = true;
+                            entries.push({ destination: parts[0], mask: parts[1] });
+                        }
+                    }
+                }
+            }
+
+            return entries;
+        }
+
         // Fetches your routing table and populates the route dropdown selection panel
         function runRoutePrint() {
             try {
@@ -150,28 +200,12 @@
                 var dropDown = document.getElementById('route-selector');
                 while (dropDown.options.length > 1) { dropDown.remove(1); }
 
-                var lines = output.split("\n");
-                var startParsing = false;
-
-                for (var i = 0; i < lines.length; i++) {
-                    var line = lines[i].replace(/^\s+|\s+$/g, '');
-                    if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
-                    if (startParsing && (line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) { 
-                        if(line.indexOf("===") !== -1 && dropDown.options.length > 1) startParsing = false; 
-                        continue; 
-                    }
-
-                    if (startParsing && line !== "") {
-                        var parts = line.replace(/\s+/g, ' ').split(' ');
-                        if (parts.length >= 2 && parts[0].match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                            var ipTarget = parts[0];
-                            var netmask = parts[1];
-                            var opt = document.createElement('option');
-                            opt.value = ipTarget;
-                            opt.text = "Dest: " + ipTarget + " [Mask: " + netmask + "]";
-                            dropDown.add(opt);
-                        }
-                    }
+                var entries = getActiveRouteEntries(output);
+                for (var i = 0; i < entries.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = entries[i].destination;
+                    opt.text = "Dest: " + entries[i].destination + " [Mask: " + entries[i].mask + "]";
+                    dropDown.add(opt);
                 }
             } catch (e) { document.getElementById('route-box').innerText = "Routing Error: " + e.message; }
         }
@@ -184,6 +218,123 @@
             if (confirm("Are you sure you want to run route delete targeting: " + selectedIp + "?")) {
                 shell.Run('cmd.exe /c route delete ' + selectedIp, 0, true);
                 runRoutePrint();
+            }
+        }
+
+        function clearRoutesExceptDefault() {
+            if (!confirm("Delete all active IPv4 route entries except 0.0.0.0?")) { return; }
+
+            try {
+                var exec = shell.Exec("route print");
+                var output = exec.StdOut.ReadAll();
+                var entries = getActiveRouteEntries(output);
+                var deletedCount = 0;
+                var failedCount = 0;
+
+                for (var i = 0; i < entries.length; i++) {
+                    if (entries[i].destination === "0.0.0.0") { continue; }
+
+                    var exitCode = shell.Run('route delete ' + entries[i].destination + ' mask ' + entries[i].mask, 0, true);
+                    if (exitCode === 0) {
+                        deletedCount++;
+                    } else {
+                        failedCount++;
+                    }
+                }
+
+                runRoutePrint();
+                document.getElementById('log-box').innerText = '[' + new Date().toLocaleTimeString() + '] Route clear complete. Removed: ' + deletedCount + '. Preserved default route 0.0.0.0.' + (failedCount > 0 ? ' Failures: ' + failedCount + '.' : '');
+            } catch (e) {
+                document.getElementById('log-box').innerText = 'Route clear error: ' + e.message;
+            }
+        }
+
+        function getActiveRouteEntries6(routeOutput) {
+            var lines = routeOutput.split("\n");
+            var entries = [];
+            var seen = {};
+            var startParsing = false;
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].replace(/^\s+|\s+$/g, '');
+                if (line.indexOf("Active Routes:") !== -1) { startParsing = true; continue; }
+                if (startParsing && (line.indexOf("===") !== -1 || line.indexOf("Persistent Routes:") !== -1)) {
+                    if (line.indexOf("===") !== -1 && entries.length > 0) { startParsing = false; }
+                    continue;
+                }
+
+                if (startParsing && line !== "") {
+                    var parts = line.replace(/\s+/g, ' ').split(' ');
+                    if (parts.length >= 3 && parts[0].match(/^\d+$/) && parts[1].match(/^\d+$/) && parts[2].indexOf(':') !== -1) {
+                        var ifIndex = parts[0];
+                        var destination = parts[2];
+                        var key = destination + '|' + ifIndex;
+                        if (!seen[key]) {
+                            seen[key] = true;
+                            entries.push({ destination: destination, ifIndex: ifIndex });
+                        }
+                    }
+                }
+            }
+
+            return entries;
+        }
+
+        function runRoutePrint6() {
+            try {
+                var exec = shell.Exec("route print -6");
+                var output = exec.StdOut.ReadAll();
+                document.getElementById('route6-box').innerText = output;
+
+                var dropDown = document.getElementById('route6-selector');
+                while (dropDown.options.length > 1) { dropDown.remove(1); }
+
+                var entries = getActiveRouteEntries6(output);
+                for (var i = 0; i < entries.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = entries[i].destination;
+                    opt.text = "Dest: " + entries[i].destination + " [IF: " + entries[i].ifIndex + "]";
+                    dropDown.add(opt);
+                }
+            } catch (e) { document.getElementById('route6-box').innerText = "IPv6 Routing Error: " + e.message; }
+        }
+
+        function removeSelectedRoute6() {
+            var dropDown = document.getElementById('route6-selector');
+            var selectedPrefix = dropDown.options[dropDown.selectedIndex].value;
+            if (selectedPrefix === "") { alert("Please select a valid IPv6 route destination."); return; }
+
+            if (confirm("Are you sure you want to run IPv6 route delete targeting: " + selectedPrefix + "?")) {
+                shell.Run('cmd.exe /c route delete -6 ' + selectedPrefix, 0, true);
+                runRoutePrint6();
+            }
+        }
+
+        function clearRoutes6ExceptDefault() {
+            if (!confirm("Delete all active IPv6 route entries except ::/0?")) { return; }
+
+            try {
+                var exec = shell.Exec("route print -6");
+                var output = exec.StdOut.ReadAll();
+                var entries = getActiveRouteEntries6(output);
+                var deletedCount = 0;
+                var failedCount = 0;
+
+                for (var i = 0; i < entries.length; i++) {
+                    if (entries[i].destination === "::/0") { continue; }
+
+                    var exitCode = shell.Run('route delete -6 ' + entries[i].destination, 0, true);
+                    if (exitCode === 0) {
+                        deletedCount++;
+                    } else {
+                        failedCount++;
+                    }
+                }
+
+                runRoutePrint6();
+                document.getElementById('log-box').innerText = '[' + new Date().toLocaleTimeString() + '] IPv6 route clear complete. Removed: ' + deletedCount + '. Preserved default route ::/0.' + (failedCount > 0 ? ' Failures: ' + failedCount + '.' : '');
+            } catch (e) {
+                document.getElementById('log-box').innerText = 'IPv6 route clear error: ' + e.message;
             }
         }
 
@@ -200,8 +351,9 @@
                 var lines = output.split("\n");
                 for (var i = 0; i < lines.length; i++) {
                     var line = lines[i].replace(/^\s+|\s+$/g, '');
-                    if (line.toLowerCase().indexOf("target:") !== -1) {
-                        var targetName = line.replace(/Target:\s*/i, '').replace(/Target\s*=\s*/i, '');
+                    var targetMatch = line.match(/^Target:\s*(.+)$/i);
+                    if (targetMatch) {
+                        var targetName = targetMatch[1];
                         var opt = document.createElement('option');
                         opt.value = targetName;
                         opt.text = "Token: " + targetName;
@@ -218,8 +370,11 @@
             if (selectedTarget === "") { alert("Please select a target security token element to purge."); return; }
 
             if (confirm("Permanently wipe credential token value for target:\n" + selectedTarget + "?")) {
-                shell.Run('cmd.exe /c cmdkey /delete:"' + selectedTarget + '"', 0, true);
+                var exitCode = shell.Run('cmdkey /delete:' + quoteWindowsArgument(selectedTarget), 0, true);
                 runCmdKey();
+                if (exitCode !== 0) {
+                    alert('Credential delete failed for target:\n' + selectedTarget + '\n\ncmdkey exit code: ' + exitCode);
+                }
             }
         }
 
@@ -237,6 +392,41 @@
                 dnsTimerId = null;
                 document.getElementById('dns-state').innerText = "⏹️ DNS LOOP: STOPPED";
                 document.getElementById('dns-state').className = "dns-status";
+            }
+        }
+
+        function runMulticastCleanupOnce() {
+            if (multicastBusy) { return; }
+            multicastBusy = true;
+
+            try {
+                shell.Run('cmd.exe /c "for /L %i in (0,1,250) do arp -d 239.255.255.%i & netsh interface ipv4 delete neighbors & netsh interface ipv6 delete neighbors"', 0, true);
+
+                var timestamp = new Date().toLocaleTimeString();
+                if (document.getElementById('log-box').getAttribute("data-busy") !== "true") {
+                    document.getElementById('log-box').innerText = "[" + timestamp + "] Multicast delete loop ran: cleared 239.255.255.0-250 and flushed IPv4/IPv6 neighbors.";
+                }
+                runArpMonitor();
+            } finally {
+                multicastBusy = false;
+            }
+        }
+
+        function startMulticastCleanupLoop() {
+            if (multicastTimerId === null) {
+                document.getElementById('multicast-state').innerText = "🔄 MULTICAST LOOP: ACTIVE";
+                document.getElementById('multicast-state').className = "dns-status dns-active";
+                runMulticastCleanupOnce();
+                multicastTimerId = setInterval(runMulticastCleanupOnce, 1000);
+            }
+        }
+
+        function stopMulticastCleanupLoop() {
+            if (multicastTimerId !== null) {
+                clearInterval(multicastTimerId);
+                multicastTimerId = null;
+                document.getElementById('multicast-state').innerText = "⏹️ MULTICAST LOOP: STOPPED";
+                document.getElementById('multicast-state').className = "dns-status";
             }
         }
 
@@ -299,7 +489,20 @@
             <select id="route-selector" style="flex: 1; background: #020617; color: #34d399; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
                 <option value="">-- Choose an active IP route destination --</option>
             </select>
+            <button class="btn" style="background: #0f766e; width: 150px; height: 30px; margin:0;" onclick="clearRoutesExceptDefault()">Clear Routes</button>
             <button class="btn" style="background: #be123c; width: 160px; height: 30px; margin:0;" onclick="removeSelectedRoute()">Delete Selected Route</button>
+        </div>
+
+        <h3>Active Windows IPv6 Routing Table (route print -6):</h3>
+        <pre id="route6-box" class="pre route-box" style="color: #86efac; height: 95px;">Reading Windows IPv6 route table entries...</pre>
+
+        <h3 style="color: #86efac; margin-top: 10px;">Select a Target IPv6 Route Destination to Delete:</h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 5px;">
+            <select id="route6-selector" style="flex: 1; background: #020617; color: #86efac; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
+                <option value="">-- Choose an active IPv6 route destination --</option>
+            </select>
+            <button class="btn" style="background: #166534; width: 150px; height: 30px; margin:0;" onclick="clearRoutes6ExceptDefault()">Clear IPv6 Routes</button>
+            <button class="btn" style="background: #be123c; width: 160px; height: 30px; margin:0;" onclick="removeSelectedRoute6()">Delete IPv6 Route</button>
         </div>
 
         <h3>Stored System Credentials & Vault Targets (cmdkey /list):</h3>
@@ -311,6 +514,7 @@
             <select id="cmdkey-selector" style="flex: 1; background: #020617; color: #fca5a5; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
                 <option value="">-- Choose a stored vault asset identity --</option>
             </select>
+            <button class="btn" style="background: #0284c7; width: 120px; height: 30px; margin:0;" onclick="runCmdKey()">Rescan Vault</button>
             <button class="btn" style="background: #e11d48; width: 160px; height: 30px; margin:0;" onclick="removeSelectedCredential()">Delete Vault Key</button>
         </div>
 
@@ -320,8 +524,10 @@
                 <h3>Monitor Diagnostics:</h3>
                 <button class="btn btn-scan" onclick="runArpMonitor()">Rescan ARP Table</button>
                 <button class="btn btn-scan" style="background: #7c3aed;" onclick="runRoutePrint()">Show Route Table</button>
+                <button class="btn btn-scan" style="background: #0f766e;" onclick="runRoutePrint6()">Show IPv6 Route Table</button>
                 <button class="btn btn-scan" style="background: #0284c7;" onclick="runCmdKey()">Show Stored Credentials</button>
-                <button class="btn" style="background: #dc2626;" onclick="shell.Run('netsh interface ipv4 delete neighbors', 0, true); shell.Run('netsh interface ipv6 delete neighbors', 0, true); runArpMonitor();">Clear ARP Neighbors</button>
+                <button class="btn" style="background: #dc2626;" onclick="clearIpv4Neighbors()">Delete IPv4 Neighbors</button>
+                <button class="btn" style="background: #b91c1c;" onclick="clearIpv6Neighbors()">Delete IPv6 Neighbors</button>
                 <button class="btn btn-ram" onclick="cleanRamAndCache()">Clean RAM & Cache</button>
             </div>
             
@@ -331,6 +537,11 @@
                 <button class="btn btn-start" onclick="startDnsLoop()">Start DNS Flush</button>
                 <button class="btn btn-stop" onclick="stopDnsLoop()">Stop DNS Flush</button>
                 <div id="dns-state" class="dns-status">⏹️ DNS LOOP: STOPPED</div>
+
+                <h3 style="margin-top: 8px;">Multicast Cleanup Loop:</h3>
+                <button class="btn btn-start" style="background: #0ea5e9;" onclick="startMulticastCleanupLoop()">Start Multicast Delete</button>
+                <button class="btn btn-stop" style="background: #64748b;" onclick="stopMulticastCleanupLoop()">Stop Multicast Delete</button>
+                <div id="multicast-state" class="dns-status">⏹️ MULTICAST LOOP: STOPPED</div>
             </div>
         </div>
     </div>
