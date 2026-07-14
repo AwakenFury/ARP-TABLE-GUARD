@@ -13,35 +13,166 @@
         scroll="yes"
         singleinstance="yes"
     >
+
+
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 12px; margin: 0; }
-        .card { max-width: 580px; margin: 0 auto; background: #1e293b; padding: 15px; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
-        h1 { margin-top: 0; margin-bottom: 5px; font-size: 18px; border-bottom: 2px solid #334155; padding-bottom: 4px; }
-        h3 { margin: 6px 0 3px 0; font-size: 12px; color: #94a3b8; }
-        .status { font-size: 0.95rem; font-weight: bold; padding: 5px; border-radius: 6px; text-align: center; margin: 8px 0; }
-        .safe { background: #065f46; color: #34d399; }
-        .alert { background: #991b1b; color: #fca5a5; }
-        pre { background: #020617; padding: 8px; border-radius: 8px; font-family: monospace; font-size: 11px; color: #38bdf8; overflow-y: auto; overflow-x: hidden; white-space: pre-wrap; margin: 0; border: 1px solid #1e293b; }
+        @import url('https://googleapis.com');
+
+        /* Global Cyberpunk Base */
+        body { 
+            font-family: 'Share Tech Mono', monospace; 
+            background: #020406; 
+            color: #a3a3a3; 
+            padding: 12px; 
+            margin: 0; 
+            border: 2px solid #580c0c;
+        }
+
+        /* Upgraded Command Card Component */
+        .card { 
+            max-width: 580px; 
+            margin: 0 auto; 
+            background: rgba(8, 10, 12, 0.95); 
+            padding: 18px; 
+            border-radius: 4px; 
+            border: 1px solid #ff1a1a;
+            box-shadow: 0 0 25px rgba(255, 26, 26, 0.15), inset 0 0 15px rgba(0, 0, 0, 0.8);
+        }
+
+        /* Stream Title Matching Fuguboto Ritual */
+        h1 { 
+            font-family: 'Orbitron', sans-serif;
+            margin-top: 0; 
+            margin-bottom: 6px; 
+            font-size: 22px; 
+            color: #ffffff;
+            letter-spacing: 2px;
+            border-bottom: 2px dashed #ff1a1a; 
+            padding-bottom: 6px;
+            text-shadow: 0 0 10px #ff1a1a, 0 0 20px rgba(255, 26, 26, 0.5);
+        }
+
+        /* Section Headings */
+        h3 { 
+            margin: 10px 0 4px 0; 
+            font-size: 11px; 
+            color: #22c55e; 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Puff or Die Status Banner Configuration */
+        .status { 
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9rem; 
+            font-weight: bold; 
+            padding: 6px; 
+            border-radius: 2px; 
+            text-align: center; 
+            margin: 10px 0; 
+            letter-spacing: 1px;
+        }
+
+        /* Safe State Banner (Toxic Ritual Matrix Green) */
+        .safe { 
+            background: rgba(4, 47, 31, 0.7); 
+            color: #4ade80; 
+            border: 1px solid #22c55e;
+            text-shadow: 0 0 5px rgba(34, 197, 94, 0.6);
+        }
+
+        /* Alert/Breach State Banner (High-Intensity Neon Red) */
+        .alert { 
+            background: rgba(69, 10, 10, 0.85); 
+            color: #fca5a5; 
+            border: 1px solid #ef4444;
+            text-shadow: 0 0 8px #ff1a1a;
+            animation: threat-pulse 1s infinite alternate;
+        }
+
+        @keyframes threat-pulse {
+            0% { border-color: #ef4444; box-shadow: 0 0 5px #ef4444; }
+            100% { border-color: #ff1a1a; box-shadow: 0 0 15px #ff1a1a; }
+        }
+
+        /* Terminal Display Box Enclosures */
+        pre { 
+            background: #010204; 
+            padding: 8px; 
+            border-radius: 2px; 
+            font-family: 'Share Tech Mono', monospace; 
+            font-size: 11px; 
+            color: #67e8f9; 
+            overflow-y: auto; 
+            overflow-x: hidden; 
+            white-space: pre-wrap; 
+            margin: 0; 
+            border: 1px solid #1e293b; 
+        }
         
-        .log-box { height: 55px; color: #e2e8f0; }
-        .table-box { height: 110px; color: #cbd5e1; border: 1px solid #334155; }
-        .route-box { height: 110px; color: #a7f3d0; border: 1px solid #334155; }
-        .highlight { color: #34d399; font-weight: bold; }
+        .log-box { height: 55px; color: #a7f3d0; border-color: #14532d; }
+        .table-box { height: 110px; color: #cbd5e1; border-color: #1e293b; }
+        .route-box { height: 110px; color: #86efac; border-color: #14532d; }
+        .highlight { color: #f43f5e; font-weight: bold; text-shadow: 0 0 5px #f43f5e; }
         
-        .controls-grid { display: flex; flex-direction: row; gap: 10px; margin-top: 8px; padding-top: 6px; border-top: 1px solid #334155; }
+        /* Grid Layout Framework for Macro Execution Elements */
+        .controls-grid { 
+            display: flex; 
+            flex-direction: row; 
+            gap: 10px; 
+            margin-top: 12px; 
+            padding-top: 8px; 
+            border-top: 1px dashed #ff1a1a; 
+        }
+        
         .col { flex: 1; display: flex; flex-direction: column; gap: 5px; }
-        .btn { border: none; padding: 6px 10px; font-size: 11px; font-weight: bold; border-radius: 6px; cursor: pointer; color: white; width: 100%; text-align: center; margin-bottom: 2px; }
-        .btn-start { background: #2563eb; }
-        .btn-start:hover { background: #1d4ed8; }
-        .btn-stop { background: #475569; }
-        .btn-stop:hover { background: #334155; }
-        .btn-ram { background: #059669; }
-        .btn-ram:hover { background: #047857; }
-        .btn-scan { background: #d97706; }
-        .btn-scan:hover { background: #b45309; }
-        .dns-status { font-size: 11px; font-weight: bold; text-align: center; color: #64748b; margin-top: 1px; }
-        .dns-active { color: #38bdf8; animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        /* Tactical Command Buttons Styling Base */
+        .btn { 
+            font-family: 'Orbitron', sans-serif;
+            border: 1px solid transparent; 
+            padding: 7px 10px; 
+            font-size: 10px; 
+            font-weight: bold; 
+            border-radius: 2px; 
+            cursor: pointer; 
+            color: #ffffff; 
+            width: 100%; 
+            text-align: center; 
+            margin-bottom: 2px; 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s ease;
+        }
+
+        /* Engage Monitor (Deep Network Blue) */
+        .btn-start { background: #1e3a8a; border-color: #3b82f6; text-shadow: 0 0 5px #3b82f6; }
+        .btn-start:hover { background: #2563eb; box-shadow: 0 0 10px #2563eb; }
+
+        /* Halt Sentinel (Muted Operational Gray) */
+        .btn-stop { background: #374151; border-color: #6b7280; }
+        .btn-stop:hover { background: #4b5563; }
+
+        /* Purge ARP Table (Sentry Green) */
+        .btn-ram { background: #064e3b; border-color: #10b981; text-shadow: 0 0 5px #10b981; }
+        .btn-ram:hover { background: #059669; box-shadow: 0 0 10px #059669; }
+
+        /* Deep Net Scan / Exorcise Subnet (Threat Amber-Red) */
+        .btn-scan { background: #7c2d12; border-color: #f97316; text-shadow: 0 0 5px #f97316; }
+        .btn-scan:hover { background: #b45309; box-shadow: 0 0 10px #b45309; }
+
+        /* Status Footer Layout Elements */
+        .dns-status { 
+            font-size: 11px; 
+            font-weight: bold; 
+            text-align: center; 
+            color: #4b5563; 
+            margin-top: 4px; 
+            letter-spacing: 1px;
+        }
+
+        .dns-active { color: #f43f5e; animation: scan-pulse 1.5s infinite; text-shadow: 0 0 5px #f43f5e; }
+        @keyframes scan-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
     
 
@@ -58,6 +189,7 @@
         var dnsTimerId = null; 
         var multicastTimerId = null;
         var multicastBusy = false;
+        var previousArpEntries = [];
         var CUSTOM_BLOCK_GROUP = "SecGuard_Blocked_IPs";
         var BLOCK_TRACKER_PATH = "C:\\NetworkMonitor\\blocked_ips_tracker.txt";
         
@@ -187,6 +319,8 @@
                 var check1 = false, check2 = false, check3 = false;
                 var validLinesCount = 0;
                 var htmlTableDump = "";
+                var currentArpEntries = [];
+                var newArpEntries = [];
 
                 var arpSelect = document.getElementById('arp-selector');
                 while (arpSelect.options.length > 1) { arpSelect.remove(1); }
@@ -205,6 +339,7 @@
                         if (parts.length >= 2) {
                             var ip = parts[0];
                             var mac = parts[1];
+                            currentArpEntries.push(ip + "|" + mac);
                             var opt = document.createElement('option');
                             opt.value = ip;
                             opt.text = "IP: " + ip + " [" + mac + "]";
@@ -218,20 +353,43 @@
 
                 document.getElementById('table-box').innerHTML = htmlTableDump;
                 var statusBox = document.getElementById('status-box');
+                var logBox = document.getElementById('log-box');
+
+                if (previousArpEntries.length > 0) {
+                    for (var k = 0; k < currentArpEntries.length; k++) {
+                        if (previousArpEntries.indexOf(currentArpEntries[k]) === -1) {
+                            newArpEntries.push(currentArpEntries[k]);
+                        }
+                    }
+                }
+
+                previousArpEntries = currentArpEntries;
+
+                if (newArpEntries.length > 0) {
+                    statusBox.innerText = "ALERT: NEW ARP ENTRY DETECTED!";
+                    statusBox.className = "status alert";
+                    var newTimestamp = new Date().toLocaleTimeString();
+                    if (logBox.getAttribute("data-busy") !== "true") {
+                        logBox.innerText = "[" + newTimestamp + "] New ARP entry detected: " + newArpEntries.join(", ");
+                    }
+                    showStyledAlert("New ARP Entry Detected", "SecGuard detected new neighbor entries.", newArpEntries.join("\n"));
+                    setTimeout(runArpMonitor, 2000);
+                    return;
+                }
 
                 if (check1 && check2 && check3 && validLinesCount === 3) {
                     statusBox.innerText = "SYSTEM SECURE";
                     statusBox.className = "status safe";
-                    if (document.getElementById('log-box').getAttribute("data-busy") !== "true") {
+                    if (logBox.getAttribute("data-busy") !== "true") {
                         var timestamp = new Date().toLocaleTimeString();
-                        document.getElementById('log-box').innerText = "[" + timestamp + "] Baseline matches. Active ARP records tracked: " + validLinesCount;
+                        logBox.innerText = "[" + timestamp + "] Baseline matches. Active ARP records tracked: " + validLinesCount;
                     }
                     setTimeout(runArpMonitor, 2000);
                 } else {
                     statusBox.innerText = "ALERT: TAMPERING DETECTED!";
                     statusBox.className = "status alert";
                     var timestamp = new Date().toLocaleTimeString();
-                    document.getElementById('log-box').innerText = "[" + timestamp + "] Network configuration mismatch! Items found: " + validLinesCount + "\nFlushing network interfaces...";
+                    logBox.innerText = "[" + timestamp + "] Network configuration mismatch! Items found: " + validLinesCount + "\nFlushing network interfaces...";
                     showStyledAlert("Tampering Detected", "Network configuration mismatch detected by ARP monitor.", "Expected baseline: 3 known records\nDetected records: " + validLinesCount + "\nAutomatic cleanup was triggered.");
                     triggerSecurityCleanup();
                 }
@@ -619,6 +777,7 @@
             <select id="arp-selector" style="flex: 1; background: #020617; color: #38bdf8; border: 1px solid #334155; padding: 6px; border-radius: 6px; font-family: monospace; font-size: 12px; height: 30px;">
                 <option value="">-- Choose an active ARP connection entry --</option>
             </select>
+            <button class="btn btn-scan" style="width: 130px; height: 30px; margin:0;" onclick="runArpMonitor()">Rescan ARP</button>
             <button class="btn" style="background: #b45309; width: 130px; height: 30px; margin:0;" onclick="blockSelectedIp()">Block Selected IP</button>
             <button class="btn" style="background: #9f1239; width: 160px; height: 30px; margin:0;" onclick="removeSelectedArp()">Delete Selected ARP</button>
         </div>
@@ -665,7 +824,6 @@
             <!-- Column 1: System and Diagnostic Utilities -->
             <div class="col">
                 <h3>Monitor Diagnostics:</h3>
-                <button class="btn btn-scan" onclick="runArpMonitor()">Rescan ARP Table</button>
                 <button class="btn btn-scan" style="background: #7c3aed;" onclick="runRoutePrint()">Show Route Table</button>
                 <button class="btn btn-scan" style="background: #0f766e;" onclick="runRoutePrint6()">Show IPv6 Route Table</button>
                 <button class="btn btn-scan" style="background: #0284c7;" onclick="runCmdKey()">Show Stored Credentials</button>
