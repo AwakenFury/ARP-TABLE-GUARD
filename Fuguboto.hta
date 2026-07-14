@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FUGUBOTO RITUAL // CYBER BIO EXORCISM ENGINE</title>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <hta:application 
+        id="cyberBioExorcism"
+        applicationname="Fuguboto Cyber Bio HUD"
+        border="thick"
+        maximizebutton="no"
+        minimizebutton="yes"
+        scroll="yes"
+        singleinstance="yes"
+    >
+    <style>
+        @import url('https://googleapis.com');
+
+        body { 
+            font-family: 'Share Tech Mono', monospace; 
+            background: #020406; 
+            color: #a3a3a3; 
+            padding: 12px; 
+            margin: 0; 
+            border: 2px solid #580c0c;
+        }
+
+        /* Top Grid layout housing global stream stats */
+        .top-banner {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #ff1a1a;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
+
+        .header-title {
+            text-align: center;
+            flex: 2;
+        }
+
+        .header-title h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 28px;
+            color: #ffffff;
+            margin: 0;
+            letter-spacing: 4px;
+            text-shadow: 0 0 10px #ff1a1a, 0 0 20px #ff1a1a;
+        }
+
+        .header-title .engine-subtitle {
+            font-size: 14px;
+            color: #ff3333;
+            letter-spacing: 6px;
+            margin-top: 2px;
+        }
+
+        /* Left-side Global Timer and Status Stack */
+        .side-stats-box {
+            flex: 1;
+            background: rgba(15, 5, 5, 0.6);
+            border: 1px solid #7f1d1d;
+            padding: 6px 12px;
+            font-size: 11px;
+        }
+
+        .side-stats-box div span {
+            font-family: 'Orbitron', sans-serif;
+            color: #ffffff;
+            font-size: 18px;
+            text-shadow: 0 0 5px #ff1a1a;
+        }
+
+        /* Center Event Log Block */
+        .event-log-container {
+            flex: 2.5;
+            margin: 0 10px;
+            border: 1px dashed #22c55e;
+            background: rgba(5, 15, 10, 0.7);
+            padding: 6px;
+            height: 80px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            font-size: 11px;
+            color: #4ade80;
+            margin-bottom: 2px;
+        }
+
+        /* Main Modular Subnet Dashboard Windows Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .panel-window {
+            background: rgba(8, 10, 12, 0.9);
+            border: 1px solid #1e293b;
+            padding: 8px;
+        }
+
+        .panel-window.active-alert {
+            border-color: #ef4444;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+        }
+
+        .panel-window h3 {
+            margin: 0 0 6px 0;
+            font-size: 12px;
+            color: #22c55e;
+            border-bottom: 1px solid #14532d;
+            padding-bottom: 2px;
+            letter-spacing: 1px;
+        }
+
+        pre {
+            background: #010204;
+            padding: 6px;
+            margin: 0;
+            font-size: 11px;
+            color: #67e8f9;
+            height: 120px;
+            overflow: auto;
+            white-space: pre-wrap;
+            border: 1px solid #0f172a;
+        }
+
+        /* Threat Intercept Buttons Layout */
+        .action-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .btn-action {
+            flex: 1;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 5px;
+            background: #111827;
+            color: #ffffff;
+            border: 1px solid #374151;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        .btn-action:hover {
+            background: #1f2937;
+            border-color: #6b7280;
+        }
+
+        .btn-danger {
+            border-color: #991b1b;
+            color: #fca5a5;
+        }
+
+        .btn-danger:hover {
+            background: #450a0a;
+            border-color: #ef4444;
+        }
+
+        .btn-success {
+            border-color: #065f46;
+            color: #a7f3d0;
+        }
+
+        .btn-success:hover {
+            background: #064e3b;
+            border-color: #10b981;
+        }
+
+        /* Footer Status Banner */
+        .footer-marquee {
+            border-top: 1px solid #ff1a1a;
+            padding-top: 4px;
+            font-size: 10px;
+            color: #737373;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+    </style>
+
+    <script language="JavaScript">
+        // Adjusted dimension constraints for full grid visibility
+        window.resizeTo(1160, 840);
+
+        var countdownTimerId = null;
+        var streamDuration = 24 * 60 * 60 * 1000; 
+        var targetEndTime = new Date().getTime() + streamDuration;
+
+        function startStreamCountdown() {
+            if (countdownTimerId) clearInterval(countdownTimerId);
+            function updateClock() {
+                var now = new Date().getTime();
+                var remaining = targetEndTime - now;
+
+                if (remaining <= 0) {
+                    document.getElementById('24h-clock').innerHTML = "00:00:00";
+                    clearInterval(countdownTimerId);
+                    return;
+                }
+
+                var hours = Math.floor(remaining / (1000 * 60 * 60));
+                var minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                var seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+                document.getElementById('24h-clock').innerHTML = 
+                    String(hours).padStart(2, '0') + ":" + 
+                    String(minutes).padStart(2, '0') + ":" + 
+                    String(seconds).padStart(2, '0');
+            }
+            updateClock();
+            countdownTimerId = setInterval(updateClock, 1000);
+        }
+
+        window.onload = function() {
+            startStreamCountdown();
+        };
+    </script>
+</head>
+<body>
+
+    <!-- Upper Control Header Layout Block -->
+    <div class="top-banner">
+        <div class="side-stats-box">
+            STREAM STATUS: <span style="color: #ff1a1a;">• LIVE</span><br>
+            RITUAL TIMER: <br><span id="24h-clock">23:59:58</span>
+        </div>
+
+        <div class="header-title">
+            <h1>FUGUBOTO RITUAL</h1>
+            <div class="engine-subtitle">CYBER BIO EXORCISM ENGINE</div>
+        </div>
+
+        <div class="event-log-container">
+            <div class="log-entry">[22:13:47] SYSTEM INITIALIZED</div>
+            <div class="log-entry">[22:13:49] ARP TABLE SCAN COMPLETE (3 BASELINE MATCHES)</div>
+            <div class="log-entry" style="color: #f87171;">[22:14:02] NEW ARP ENTRY DETECTED: 192.168.1.154 // THREAT</div>
+        </div>
+    </div>
+
+    <!-- Main Active Network Panel Matrix Blocks -->
+    <div class="dashboard-grid">
+        
+        <!-- WINDOW 1: ARP TABLE -->
+        <div class="panel-window active-alert">
+            <h3>ARP TABLE INTERCEPT</h3>
+            <pre id="arp-display">Interface: 192.168.1.10 --- 0x6
+Internet Address      Physical Address     Type
+72.69.1.1             cc-e1-7f-90-4a-cb    dynamic
+224.0.0.22            01-00-5e-00-00-16    static
+192.168.1.154         8c-11-45-xx-xx-xx    dynamic [WARNING]</pre>
+            <div class="action-row">
+                BANISH ENTITY</button>
+                <button class="btn-action" onclick="alert('Host added to isolated sandbox...')">QUARANTINE HOST</button>
+            </div>
+        </div>
+
+        <!-- WINDOW 2: ROUTES IPv4 -->
+        <div class="panel-window">
+            <h3>IPv4 ROUTE TABLE</h3>
+            <pre id="ipv4-display">Network Destination   Netmask          Gateway        Interface
+0.0.0.0               0.0.0.0          192.168.1.1    192.168.1.10
+192.168.1.0           255.255.255.0    On-link        192.168.1.10
+172.16.0.0            255.240.0.0      192.168.1.1    192.168.1.10</pre>
+            <div class="action-row">
+                <button class="btn-action btn-danger" onclick="alert('Severing gateway path...')">SEVER CONNECTION</button>
+                <button class="btn-action btn-success" onclick="alert('Restoring clean table structure...')">CLEAR ROUTES</button>
+            </div>
+        </div>
+
+        <!-- WINDOW 3: DNS ENGINE -->
+        <div class="panel-window">
+            <h3>DNS OVERDRIVE ENGINE</h3>
+            <pre id="dns-display">DNS FLUSH LOOP: ACTIVE
+Current Monitoring Status: PASSIVE LISTEN
+Intercept Target: Broadcast queries mapped securely.</pre>
+            <div class="action-row">
+                <button class="btn-action btn-success" onclick="alert('Activating loop process...')">ACTIVATE LOOP</button>
+                <button class="btn-action btn-danger" onclick="alert('Terminating flush loops...')">TERMINATE LOOP</button>
+            </div>
+        </div>
+
+        <!-- WINDOW 4: SYSTEM TOOLS & PURIFICATION -->
+        <div class="panel-window">
+            <h3>SYSTEM TOOLS & PURIFICATION</h3>
+            <pre id="tools-display">Memory Cache Status: Operational
+Active Interface Diagnostics: Baseline values stable.
+BLE/WiFi Node Propagation: Connected nodes tracking normal.</pre>
+            <div class="action-row">
+                <button class="btn-action" onclick="alert('Flushing volatile runtime structures...')">CLEAN RAM & CACHE</button>
+                <button class="btn-action btn-danger" onclick="alert('Purging target database parameters...')">DELETE IPv4 NEIGHBORS</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Layout Base Footer -->
+    <!-- Layout Base Footer -->
+    <div class="footer-marquee">
+        || RITUAL BROADCAST ACTIVE || ALL SYSTEMS MONITORED || ANOMALIES WILL BE EXPOSED || THE HUNT NEVER ENDS ||
+    </div>
+
+</body>
+</html>
